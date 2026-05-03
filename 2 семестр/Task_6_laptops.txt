@@ -1,0 +1,6 @@
+FILE_FORMAT
+HP             Pavilion 15         15.6    i5-1135G7   4       8       512       SSD     699.99    
+Lenovo         ThinkPad X1         14      i5-1240P    12      16      256       SSD     1299.99   
+Asus           ROG Zephyrus        15.6    R9-6900HS   8       16      1000      SSD     1799.99   
+Dell           XPS 15              15.6    i7-12700H   12      16      512       SSD     1499.99   
+Apple          MacBook Pro 14      14.2    M2 Pro      10      16      512       SSD     1999.99   
