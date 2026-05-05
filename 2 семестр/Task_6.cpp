@@ -125,59 +125,97 @@ public:
         return value;
     }
 
-    // Вставка в произвольное место
-    void insert(int position, T value) {
-        if (position < 0) return;
+    // Вставка в произвольное место с возвращением указателя на добавленный элемент
+    Element<T>* insert(int position, T value) {
+        if (position < 0) return nullptr;
         
-        if (position == 0) {
-            push(value);
-            return;
+        Element<T>* newElem = new Element<T>(value);
+
+        // Вставка в начало списка
+        if (position == 0)
+        {
+            newElem->setNext(head);
+            head = newElem;
+
+            if (tail == nullptr)
+                tail = newElem;
+
+            return newElem;
         }
+
         
         Element<T>* current = head;
         int index = 0;
         
-        while (current != nullptr && index < position - 1) {
+        // Идём к элементу перед позицией вставки
+        while (current != nullptr && index < position - 1)
+        {
             current = current->getNext();
             index++;
         }
         
-        if (current == nullptr) return;
+        // Если позиция больше длины списка
+        if (current == nullptr)
+        {
+            delete newElem;
+            return nullptr;
+        }
         
-        Element<T>* newElem = new Element<T>(value);
         newElem->setNext(current->getNext());
         current->setNext(newElem);
-        
-        if (newElem->getNext() == nullptr) {
-            tail = newElem;
-        }
-    }
 
-    // Удаление элемента по указателю
-    void remove(Element<T>* element) {
-        if (!element) return;
+        // Если вставили в конец, обновляем tail
+        if (newElem->getNext() == nullptr)
+            tail = newElem;
+
+        return newElem;
+}
+
+    // Удаление элемента по указателю с возващением значения удаленного элемента
+    T remove(Element<T>* element) {
+        if (element == nullptr)
+            throw runtime_error("Cannot remove null element");
+
+        if (head == nullptr)
+            throw runtime_error("List is empty");    
         
+        // 1й элемент
         if (element == head) {
+            T removedValue = head->getInfo();
+
+            Element<T>* oldHead = head;
             head = head->getNext();
-            delete element;
-            if (head == nullptr) {
+
+            if (head == nullptr)
                 tail = nullptr;
-            }
-            return;
+
+            delete oldHead;
+
+            return removedValue;
         }
-        
+
         Element<T>* current = head;
-        while (current != nullptr && current->getNext() != element) {
+        
+        // Ищем элемент, который стоит перед удаляемым
+        while (current != nullptr && current->getNext() != element)
+        {
             current = current->getNext();
         }
         
-        if (current == nullptr) return;
-        
+        // Если переданный указатель не принадлежит списку
+        if (current == nullptr)
+            throw runtime_error("Element not found in list");
+
+        T removedValue = element->getInfo();
+
         current->setNext(element->getNext());
-        if (element == tail) {
+
+        if (element == tail)
             tail = current;
-        }
+
         delete element;
+
+        return removedValue;
     }
 
     // Итеративный поиск по значению
@@ -416,6 +454,7 @@ int main() {
     
     // Создание списка
     ImprovedList<Laptop> laptops;
+    Element<Laptop>* inserted;
     
     // Автоматическое заполнение
     cout << "Adding sample laptops...\n";
@@ -430,8 +469,16 @@ int main() {
     
     // Вставка элемента
     cout << "\nInserting Asus laptop at position 2...\n";
-    laptops.insert(2, Laptop("Asus", "ROG Zephyrus", 15.6, "R9-6900HS", 8, 16, 1000, "SSD", 1799.99));
+    inserted = laptops.insert(2, Laptop("Asus", "ROG Zephyrus", 15.6, "R9-6900HS", 8, 16, 1000, "SSD", 1799.99));
     
+    // Проверка
+    if (inserted != nullptr)
+    {
+        cout << "\nInserted element:\n";
+        cout << laptopHeader;
+        cout << inserted->getInfo() << "\n";
+    }
+
     cout << laptopHeader;
     laptops.print();
     cout << string(100, '-') << "\n";

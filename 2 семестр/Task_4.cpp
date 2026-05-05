@@ -25,10 +25,17 @@ public:
 
         p = new char[capacity];
 
-        for (int i = 0; i < len; i++)
+        const char* source = ptr;
+        char* destination = p;
+
+        while (*source != '\0')
         {
-            p[i] = ptr[i];
+            *destination = *source;
+            
+            ++source; ++destination;
         }
+
+        *destination = '\0';
     }
 
     // Конструктор по-умолчанию
@@ -54,10 +61,18 @@ public:
         capacity = s.capacity;
         p = new char[capacity];
 
-        for (int i = 0; i < len; i++)
+        const char* source = s.p;
+        char* destination = p;
+
+        while (*source != '\0')
         {
-            p[i] = s.p[i];
+            *destination = *source;
+
+            source++;
+            destination++;
         }
+
+        *destination = '\0';
     }
 
     // Виртуальный деструктор
@@ -102,30 +117,38 @@ public:
         cout << "\nBase Operator =\n";
 
         if (this == &s)
-            return *this;
+            return *this; // указатель на класс
 
         delete[] p;
 
         len = s.len;
-        capacity = s.capacity;
+        capacity = s.capacity;  
         p = new char[capacity];
 
-        for (int i = 0; i < len; i++)
+        const char* source = s.p;
+        char* destination = p;
+
+        while (*source != '\0')
         {
-            p[i] = s.p[i];
+            *destination = *source;
+
+            source++;
+            destination++;
         }
+
+        *destination = '\0';
 
         return *this;
     }
 
     virtual void print() const
     {
-        int i = 0;
+        const char* current = p;
 
-        while (p[i] != '\0')
+        while (*current != '\0')
         {
-            cout << p[i];
-            i++;
+            cout << *current;
+            ++current;
         }
     }
 };
@@ -186,34 +209,35 @@ public:
     // Проверка на пробел
     bool HasSpaceAfterEachPunctuation() const
     {
-        for (int i = 0; p[i] != '\0'; i++)
-        {
-            if (isPunctuation(p[i]))
-            {
-                if (p[i + 1] == '\0')
-                    continue;
+        const char* current = p;
 
-                if (p[i + 1] != ' ')
+        while (*current != '\0')
+        {
+            if (isPunctuation(*current))
+            {
+                if (*(current + 1) != '\0' && *(current + 1) != ' ')
                     return false;
             }
+
+            current++;
         }
 
         return true;
     }
 
-    // Индекс первой неправильно пунктуации
     int FirstBadPunctuationIndex() const
     {
-        for (int i = 0; p[i] != '\0'; i++)
-        {
-            if (isPunctuation(p[i]))
-            {
-                if (p[i + 1] == '\0')
-                    continue;
+        const char* current = p;
 
-                if (p[i + 1] != ' ')
-                    return i;
+        while (*current != '\0')
+        {
+            if (isPunctuation(*current))
+            {
+                if (*(current + 1) != '\0' && *(current + 1) != ' ')
+                    return current - p;
             }
+
+            current++;
         }
 
         return -1;
@@ -226,9 +250,15 @@ int main()
     const char* text2 = "Hello,World! How are you?";
     const char* text3 = "One; two: three, four.";
 
+
+
+
     PunctuationString s1(text1);
     PunctuationString s2(text2);
     PunctuationString s3(text3);
+
+
+
 
     cout << "\n\nString 1: ";
     s1.print();
@@ -239,6 +269,9 @@ int main()
         cout << "\nError at index: " << s1.FirstBadPunctuationIndex() << "\n";
 
 
+
+
+
     cout << "\nString 2: ";
     s2.print();
 
@@ -246,6 +279,9 @@ int main()
         cout << "\nAfter each punctuation mark there is a space\n";
     else
         cout << "\nError at index: " << s2.FirstBadPunctuationIndex() << "\n";
+
+
+
 
     cout << "\nString 3: ";
     s3.print();
@@ -255,12 +291,18 @@ int main()
     else
         cout << "\nError at index: " << s3.FirstBadPunctuationIndex() << "\n";
 
+
+
+
     cout << "\n\nCopy constructor test:";
     PunctuationString copy = s1;
     cout << "\nCopy: ";
     copy.print();
 
-    cout << "\n\nOperator = test:";
+
+
+
+    cout << "\n\nOperator= test:";
     PunctuationString assigned;
     assigned = s3;
     cout << "\nAssigned: ";
