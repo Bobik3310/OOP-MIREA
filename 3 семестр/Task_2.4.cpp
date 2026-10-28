@@ -1,598 +1,271 @@
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <functional>
 #include <iostream>
+#include <list>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
-#include <exception>
 
-using namespace std;
+struct AirplaneKey {
+  std::string manufacturer, name;
+  bool operator<(const AirplaneKey &o) const {
+    return std::tie(manufacturer, name) < std::tie(o.manufacturer, o.name);
+  }
+  bool operator==(const AirplaneKey &o) const {
+    return manufacturer == o.manufacturer && name == o.name;
+  }
+};
+std::ostream &operator<<(std::ostream &os, const AirplaneKey &k) {
+  return os << k.manufacturer << " / " << k.name;
+}
 
-class KeyExistsException : public exception {
-private:
-    string message;
+struct Airplane {
+  bool operator==(const Airplane &o) const {
+    return name == o.name && manufacturer == o.manufacturer &&
+           capacity == o.capacity && range == o.range &&
+           max_speed == o.max_speed;
+  }
+  std::string name, manufacturer;
+  int capacity{};
+  double range{};     // km
+  double max_speed{}; // km/h
+  AirplaneKey key() const { return {manufacturer, name}; }
+};
+std::ostream &operator<<(std::ostream &os, const Airplane &a) {
+  return os << a.manufacturer << ' ' << a.name << ", capacity=" << a.capacity
+            << ", range=" << a.range << ", max_speed=" << a.max_speed;
+}
+
+template <class T, class Key, class KeyOf> class SearchTree {
+protected:
+  struct Node {
+    Key key;
+    T value;
+    Node *left{}, *right{}, *parent{};
+    Node(const Key &k, const T &v, Node *p = nullptr)
+        : key(k), value(v), parent(p) {}
+  };
+  Node *root_{};
+  KeyOf key_of_{};
+
+  static Node *minimum(Node *n) {
+    while (n && n->left)
+      n = n->left;
+    return n;
+  }
+  static Node *maximum(Node *n) {
+    while (n && n->right)
+      n = n->right;
+    return n;
+  }
+  static Node *successor(Node *n) {
+    if (!n)
+      return nullptr;
+    if (n->right)
+      return minimum(n->right);
+    Node *p = n->parent;
+    while (p && n == p->right) {
+      n = p;
+      p = p->parent;
+    }
+    return p;
+  }
+  static Node *predecessor(Node *n) {
+    if (!n)
+      return nullptr;
+    if (n->left)
+      return maximum(n->left);
+    Node *p = n->parent;
+    while (p && n == p->left) {
+      n = p;
+      p = p->parent;
+    }
+    return p;
+  }
+  using KeyEqual = bool (*)(const Key &, const Key &);
+  static bool default_key_equal(const Key &a, const Key &b) { return a == b; }
+  Node *find_node(const Key &k, KeyEqual equal = default_key_equal) const {
+    Node *n = root_;
+    while (n) {
+      if (equal(k, n->key))
+        return n;
+      n = (k < n->key) ? n->left : n->right;
+    }
+    return nullptr;
+  }
+  Node *insert_unique_node(const T &value) {
+    Key k = key_of_(value);
+    if (!root_)
+      return root_ = new Node(k, value);
+    Node *cur = root_;
+    Node *parent = nullptr;
+    while (cur) {
+      parent = cur;
+      if (k == cur->key)
+        return cur;
+      cur = (k < cur->key) ? cur->left : cur->right;
+    }
+    Node *n = new Node(k, value, parent);
+    if (k < parent->key)
+      parent->left = n;
+    else
+      parent->right = n;
+    return n;
+  }
+  Node *
+  insert_right_node(const T &value) { // equal keys go right (2.5, even variant)
+    Key k = key_of_(value);
+    if (!root_)
+      return root_ = new Node(k, value);
+    Node *cur = root_;
+    Node *parent = nullptr;
+    while (cur) {
+      parent = cur;
+      cur = (k < cur->key) ? cur->left : cur->right;
+    }
+    Node *n = new Node(k, value, parent);
+    if (k < parent->key)
+      parent->left = n;
+    else
+      parent->right = n;
+    return n;
+  }
+  void transplant(Node *u, Node *v) {
+    if (!u->parent)
+      root_ = v;
+    else if (u == u->parent->left)
+      u->parent->left = v;
+    else
+      u->parent->right = v;
+    if (v)
+      v->parent = u->parent;
+  }
+  void destroy(Node *n) {
+    if (!n)
+      return;
+    destroy(n->left);
+    destroy(n->right);
+    delete n;
+  }
 
 public:
-    KeyExistsException(const string& msg) {
-        message = msg;
-    }
+  class iterator {
+    Node *n_{};
+    bool reverse_{};
+    friend class SearchTree;
 
-    const char* what() const noexcept override {
-        return message.c_str();
+  public:
+    iterator(Node *n, bool r) : n_(n), reverse_(r) {}
+    iterator() = default;
+    T &operator*() const { return n_->value; }
+    T *operator->() const { return &n_->value; }
+    bool operator==(const iterator &o) const { return n_ == o.n_; }
+    bool operator!=(const iterator &o) const { return !(*this == o); }
+    iterator &operator++() {
+      n_ = reverse_ ? predecessor(n_) : successor(n_);
+      return *this;
     }
+    Node *node() const { return n_; }
+  };
+  SearchTree() = default;
+  ~SearchTree() { destroy(root_); }
+  iterator begin() { return iterator(minimum(root_), false); }
+  iterator end() { return iterator(nullptr, false); }
+  iterator rbegin() { return iterator(maximum(root_), true); }
+  iterator rend() { return iterator(nullptr, true); }
+  iterator min() { return begin(); }
+  iterator max() { return rbegin(); }
+  iterator add(const T &v) { return iterator(insert_unique_node(v), false); }
+  iterator find(const Key &k, KeyEqual equal = default_key_equal) {
+    return iterator(find_node(k, equal), false);
+  }
+  using Compare = bool (*)(const T &, const T &);
+  iterator find_value(const T &wanted, Compare pred) {
+    for (auto it = begin(); it != end(); ++it) {
+      if (pred && pred(*it, wanted))
+        return it;
+    }
+    return end();
+  }
+  bool erase(const Key &k) {
+    Node *z = find_node(k);
+    if (!z)
+      return false;
+    if (!z->left)
+      transplant(z, z->right);
+    else if (!z->right)
+      transplant(z, z->left);
+    else {
+      Node *y = minimum(z->right);
+      if (y->parent != z) {
+        transplant(y, y->right);
+        y->right = z->right;
+        y->right->parent = y;
+      }
+      transplant(z, y);
+      y->left = z->left;
+      y->left->parent = y;
+    }
+    delete z;
+    return true;
+  }
+  bool erase(iterator pos) {
+    return pos.node() ? erase(pos.node()->key) : false;
+  }
 };
 
-class NotFoundException : public exception {
-private:
-    string message;
+// Связывает объект C с его ключом K.
+template <class T, class Key, class KeyOf>
+void print_tree(SearchTree<T, Key, KeyOf> &tree, std::ostream &os,
+                bool ascending = true) {
+  if (ascending) {
+    for (auto it = tree.begin(); it != tree.end(); ++it)
+      os << *it << '\n';
+  } else {
+    for (auto it = tree.rbegin(); it != tree.rend(); ++it)
+      os << *it << '\n';
+  }
+}
 
-public:
-    NotFoundException(const string& msg) {
-        message = msg;
-    }
-
-    const char* what() const noexcept override {
-        return message.c_str();
-    }
+struct AirplaneKeyOf {
+  AirplaneKey operator()(const Airplane &a) const { return a.key(); }
 };
-
-class IteratorException : public exception {
-private:
-    string message;
-
-public:
-    IteratorException(const string& msg) {
-        message = msg;
-    }
-
-    const char* what() const noexcept override {
-        return message.c_str();
-    }
-};
-
-class AirplaneKey {
-private:
-    string manufacturer;
-    string name;
-
-public:
-    AirplaneKey(string m = "", string n = "") {
-        manufacturer = m;
-        name = n;
-    }
-
-    string getManufacturer() const {
-        return manufacturer;
-    }
-
-    string getName() const {
-        return name;
-    }
-
-    bool operator<(const AirplaneKey& other) const {
-        if (manufacturer != other.manufacturer) {
-            return manufacturer < other.manufacturer;
-        }
-
-        return name < other.name;
-    }
-
-    bool operator>(const AirplaneKey& other) const {
-        return other < *this;
-    }
-
-    bool operator==(const AirplaneKey& other) const {
-        return manufacturer == other.manufacturer &&
-               name == other.name;
-    }
-
-    friend ostream& operator<<(ostream& os, const AirplaneKey& key) {
-        os << key.manufacturer << " " << key.name;
-        return os;
-    }
-};
-
-class Airplane {
-private:
-    string name;
-    string manufacturer;
-    int capacity;
-    int flightRange;
-    int maxSpeed;
-
-public:
-    Airplane(
-        string n = "",
-        string m = "",
-        int c = 0,
-        int r = 0,
-        int s = 0
-    ) {
-        name = n;
-        manufacturer = m;
-        capacity = c;
-        flightRange = r;
-        maxSpeed = s;
-    }
-
-    string getName() const {
-        return name;
-    }
-
-    string getManufacturer() const {
-        return manufacturer;
-    }
-
-    int getCapacity() const {
-        return capacity;
-    }
-
-    int getFlightRange() const {
-        return flightRange;
-    }
-
-    int getMaxSpeed() const {
-        return maxSpeed;
-    }
-
-    bool operator==(const Airplane& other) const {
-        return name == other.name &&
-               manufacturer == other.manufacturer &&
-               capacity == other.capacity &&
-               flightRange == other.flightRange &&
-               maxSpeed == other.maxSpeed;
-    }
-
-    friend ostream& operator<<(ostream& os, const Airplane& airplane) {
-        os << "Название: " << airplane.name
-           << ", производитель: " << airplane.manufacturer
-           << ", вместимость: " << airplane.capacity
-           << ", дальность полета: " << airplane.flightRange
-           << ", максимальная скорость: " << airplane.maxSpeed;
-
-        return os;
-    }
-};
-
-template <typename K, typename V>
-class AVLTree {
-private:
-    struct Node {
-        K key;
-        V value;
-        Node* left;
-        Node* right;
-        Node* parent;
-        int height;
-
-        Node(const K& k, const V& v) {
-            key = k;
-            value = v;
-            left = NULL;
-            right = NULL;
-            parent = NULL;
-            height = 1;
-        }
-    };
-
-    Node* root;
-
-    int height(Node* node) const {
-        if (node == NULL) {
-            return 0;
-        }
-
-        return node->height;
-    }
-
-    int maxValue(int a, int b) const {
-        if (a > b) {
-            return a;
-        }
-
-        return b;
-    }
-
-    void updateHeight(Node* node) {
-        if (node != NULL) {
-            node->height = 1 + maxValue(height(node->left), height(node->right));
-        }
-    }
-
-    int getBalance(Node* node) const {
-        if (node == NULL) {
-            return 0;
-        }
-
-        return height(node->left) - height(node->right);
-    }
-
-    Node* rotateRight(Node* y) {
-        Node* x = y->left;
-        Node* t2 = x->right;
-
-        x->right = y;
-        y->left = t2;
-
-        x->parent = y->parent;
-        y->parent = x;
-
-        if (t2 != NULL) {
-            t2->parent = y;
-        }
-
-        updateHeight(y);
-        updateHeight(x);
-
-        return x;
-    }
-
-    Node* rotateLeft(Node* x) {
-        Node* y = x->right;
-        Node* t2 = y->left;
-
-        y->left = x;
-        x->right = t2;
-
-        y->parent = x->parent;
-        x->parent = y;
-
-        if (t2 != NULL) {
-            t2->parent = x;
-        }
-
-        updateHeight(x);
-        updateHeight(y);
-
-        return y;
-    }
-
-    Node* rebalance(Node* node) {
-        updateHeight(node);
-
-        int balance = getBalance(node);
-
-        if (balance > 1) {
-            if (getBalance(node->left) < 0) {
-                node->left = rotateLeft(node->left);
-
-                if (node->left != NULL) {
-                    node->left->parent = node;
-                }
-            }
-
-            return rotateRight(node);
-        }
-
-        if (balance < -1) {
-            if (getBalance(node->right) > 0) {
-                node->right = rotateRight(node->right);
-
-                if (node->right != NULL) {
-                    node->right->parent = node;
-                }
-            }
-
-            return rotateLeft(node);
-        }
-
-        return node;
-    }
-
-    Node* insert(Node* node, Node* parent, const K& key, const V& value) {
-        if (node == NULL) {
-            Node* newNode = new Node(key, value);
-            newNode->parent = parent;
-            return newNode;
-        }
-
-        if (key < node->key) {
-            node->left = insert(node->left, node, key, value);
-
-            if (node->left != NULL) {
-                node->left->parent = node;
-            }
-        }
-        else if (key > node->key) {
-            node->right = insert(node->right, node, key, value);
-
-            if (node->right != NULL) {
-                node->right->parent = node;
-            }
-        }
-        else {
-            throw KeyExistsException("Ошибка: ключ уже существует");
-        }
-
-        return rebalance(node);
-    }
-
-    Node* findNodeByKey(Node* node, const K& key) const {
-        if (node == NULL) {
-            return NULL;
-        }
-
-        if (key == node->key) {
-            return node;
-        }
-
-        if (key < node->key) {
-            return findNodeByKey(node->left, key);
-        }
-
-        return findNodeByKey(node->right, key);
-    }
-
-    Node* minNode(Node* node) const {
-        if (node == NULL) {
-            return NULL;
-        }
-
-        while (node->left != NULL) {
-            node = node->left;
-        }
-
-        return node;
-    }
-
-    Node* maxNode(Node* node) const {
-        if (node == NULL) {
-            return NULL;
-        }
-
-        while (node->right != NULL) {
-            node = node->right;
-        }
-
-        return node;
-    }
-
-    Node* successor(Node* node) const {
-        if (node == NULL) {
-            return NULL;
-        }
-
-        if (node->right != NULL) {
-            return minNode(node->right);
-        }
-
-        Node* parent = node->parent;
-
-        while (parent != NULL && node == parent->right) {
-            node = parent;
-            parent = parent->parent;
-        }
-
-        return parent;
-    }
-
-    Node* predecessor(Node* node) const {
-        if (node == NULL) {
-            return NULL;
-        }
-
-        if (node->left != NULL) {
-            return maxNode(node->left);
-        }
-
-        Node* parent = node->parent;
-
-        while (parent != NULL && node == parent->left) {
-            node = parent;
-            parent = parent->parent;
-        }
-
-        return parent;
-    }
-
-    void clear(Node* node) {
-        if (node == NULL) {
-            return;
-        }
-
-        clear(node->left);
-        clear(node->right);
-        delete node;
-    }
-
-public:
-    class Iterator {
-    private:
-        Node* current;
-        const AVLTree<K, V>* tree;
-
-    public:
-        Iterator(Node* node = NULL, const AVLTree<K, V>* t = NULL) {
-            current = node;
-            tree = t;
-        }
-
-        bool operator!=(const Iterator& other) const {
-            return current != other.current;
-        }
-
-        bool operator==(const Iterator& other) const {
-            return current == other.current;
-        }
-
-        Iterator& operator++() {
-            if (current != NULL) {
-                current = tree->successor(current);
-            }
-
-            return *this;
-        }
-
-        Iterator& operator--() {
-            if (current != NULL) {
-                current = tree->predecessor(current);
-            }
-
-            return *this;
-        }
-
-        const K& getKey() const {
-            if (current == NULL) {
-                throw IteratorException("Ошибка: итератор не связан с элементом");
-            }
-
-            return current->key;
-        }
-
-        const V& getValue() const {
-            if (current == NULL) {
-                throw IteratorException("Ошибка: итератор не связан с элементом");
-            }
-
-            return current->value;
-        }
-    };
-
-    AVLTree() {
-        root = NULL;
-    }
-
-    ~AVLTree() {
-        clear(root);
-    }
-
-    void add(const K& key, const V& value) {
-        root = insert(root, NULL, key, value);
-
-        if (root != NULL) {
-            root->parent = NULL;
-        }
-    }
-
-    V findByKey(const K& key) const {
-        Node* node = findNodeByKey(root, key);
-
-        if (node == NULL) {
-            throw NotFoundException("Ошибка: элемент с таким ключом не найден");
-        }
-
-        return node->value;
-    }
-
-    vector<K> findByValue(const V& value) const {
-        vector<K> result;
-
-        for (Iterator it = begin(); it != end(); ++it) {
-            if (it.getValue() == value) {
-                result.push_back(it.getKey());
-            }
-        }
-
-        if (result.empty()) {
-            throw NotFoundException("Ошибка: элемент с таким значением не найден");
-        }
-
-        return result;
-    }
-
-    Iterator begin() const {
-        return Iterator(minNode(root), this);
-    }
-
-    Iterator end() const {
-        return Iterator(NULL, this);
-    }
-
-    Iterator rbegin() const {
-        return Iterator(maxNode(root), this);
-    }
-
-    Iterator rend() const {
-        return Iterator(NULL, this);
-    }
-
-    void printAscending() const {
-        for (Iterator it = begin(); it != end(); ++it) {
-            cout << "Ключ: " << it.getKey() << endl;
-            cout << "Значение: " << it.getValue() << endl;
-            cout << "----------------------------------" << endl;
-        }
-    }
-
-    void printDescending() const {
-        for (Iterator it = rbegin(); it != rend(); --it) {
-            cout << "Ключ: " << it.getKey() << endl;
-            cout << "Значение: " << it.getValue() << endl;
-            cout << "----------------------------------" << endl;
-        }
-    }
-};
+bool same_capacity(const Airplane &a, const Airplane &b) {
+  return a.capacity == b.capacity;
+}
+bool same_key(const AirplaneKey &a, const AirplaneKey &b) {
+  return a.manufacturer == b.manufacturer && a.name == b.name;
+}
 
 int main() {
-    AVLTree<AirplaneKey, Airplane> airplanes;
+  // T = C (Самолет), Key = K, KeyOf извлекает K из объекта C.
+  using Tree = SearchTree<Airplane, AirplaneKey, AirplaneKeyOf>;
+  Tree tree;
+  tree.add({"A320", "Airbus", 180, 6100, 840});
+  tree.add({"737-800", "Boeing", 189, 5765, 842});
+  tree.add({"A321", "Airbus", 220, 5950, 840});
+  tree.add({"A350", "Airbus", 325, 15000, 905});
 
-    try {
-        airplanes.add(
-            AirplaneKey("Boeing", "737"),
-            Airplane("737", "Boeing", 189, 5600, 850)
-        );
+  std::cout << "\nПо возрастанию ключа:\n";
+  print_tree(tree, std::cout, true);
 
-        airplanes.add(
-            AirplaneKey("Airbus", "A320"),
-            Airplane("A320", "Airbus", 180, 6100, 840)
-        );
+  std::cout << "\nПо убыванию ключа:\n";
+  print_tree(tree, std::cout, false);
 
-        airplanes.add(
-            AirplaneKey("Boeing", "787"),
-            Airplane("787", "Boeing", 330, 13600, 954)
-        );
+  AirplaneKey key{"Airbus", "A321"};
+  auto found = tree.find(key, same_key);
+  if (found != tree.end())
+    std::cout << "\nНайден по ключу: " << *found << '\n';
 
-        airplanes.add(
-            AirplaneKey("Tupolev", "Tu-204"),
-            Airplane("Tu-204", "Tupolev", 210, 4300, 850)
-        );
+  Airplane sample{"", "", 220, 0, 0};
+  auto by_value = tree.find_value(sample, same_capacity);
+  if (by_value != tree.end())
+    std::cout << "Найден по функции сравнения: " << *by_value << '\n';
 
-        airplanes.add(
-            AirplaneKey("Airbus", "A350"),
-            Airplane("A350", "Airbus", 350, 15000, 945)
-        );
-
-        airplanes.add(
-            AirplaneKey("Irkut", "MS-21"),
-            Airplane("MS-21", "Irkut", 211, 6000, 870)
-        );
-
-        cout << "Вывод дерева в порядке возрастания ключей:\n\n";
-        airplanes.printAscending();
-
-        cout << "\nВывод дерева в порядке убывания ключей:\n\n";
-        airplanes.printDescending();
-
-        cout << "\nПоиск по ключу Boeing 787:\n";
-        Airplane foundByKey = airplanes.findByKey(
-            AirplaneKey("Boeing", "787")
-        );
-        cout << foundByKey << endl;
-
-        cout << "\nПоиск по значению:\n";
-        Airplane target("A350", "Airbus", 350, 15000, 945);
-
-        vector<AirplaneKey> keys = airplanes.findByValue(target);
-
-        for (int i = 0; i < keys.size(); i++) {
-            cout << keys[i] << endl;
-        }
-
-        cout << "\nПроверка исключения при повторном ключе:\n";
-        airplanes.add(
-            AirplaneKey("Boeing", "737"),
-            Airplane("737-duplicate", "Boeing", 200, 7000, 900)
-        );
-    }
-    catch (const KeyExistsException& e) {
-        cout << e.what() << endl;
-    }
-    catch (const NotFoundException& e) {
-        cout << e.what() << endl;
-    }
-    catch (const IteratorException& e) {
-        cout << e.what() << endl;
-    }
-    catch (const exception& e) {
-        cout << "Неизвестная ошибка: " << e.what() << endl;
-    }
-
-    return 0;
+  tree.erase(key);
+  std::cout << "\nПосле удаления Airbus/A321:\n";
+  print_tree(tree, std::cout, true);
 }
