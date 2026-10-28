@@ -10,8 +10,7 @@
 
 // Универсальная хеш-таблица. Вариант 30:
 // h(K) = floor(size * K * phi), коллизии — методом цепочек.
-template<class Key, class Value, class KeyOf, class HashKey,
-         class KeyEqual = std::equal_to<Key>>
+template<class Key, class Value, class KeyOf, class HashKey, class KeyEqual = std::equal_to<Key>>
 class HashTable {
     using Item = std::pair<Key, Value>;
     static constexpr double phi = 0.6180339887498948482;
@@ -23,15 +22,12 @@ class HashTable {
 
     std::size_t index(const Key& key) const {
         const std::uint64_t K = hash_key_(key);
-        const auto raw = static_cast<std::size_t>(
-            std::floor(static_cast<double>(buckets_.size()) *
-                       static_cast<double>(K) * phi));
+        const auto raw = static_cast<std::size_t>(std::floor(static_cast<double>(buckets_.size()) * static_cast<double>(K) * phi));
         return raw % buckets_.size();
     }
 
 public:
-    explicit HashTable(std::size_t size = 101)
-        : buckets_(size == 0 ? 1 : size) {}
+    explicit HashTable(std::size_t size = 101) : buckets_(size == 0 ? 1 : size) {}
 
     void add(const Value& value) {
         const Key key = key_of_(value);
@@ -121,13 +117,7 @@ struct PrintAirplane {
 };
 
 int main() {
-    using AirplaneTable = HashTable<
-        AirplaneKey,
-        Airplane,
-        AirplaneKeyOf,
-        AirplaneHash30
-    >;
-
+    using AirplaneTable = HashTable<AirplaneKey, Airplane, AirplaneKeyOf, AirplaneHash30>;
     AirplaneTable table(11);
 
     table.add({"A320", "Airbus", 180, 6100, 840});
