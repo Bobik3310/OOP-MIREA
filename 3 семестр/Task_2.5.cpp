@@ -2,370 +2,177 @@
 #include <functional>
 #include <iostream>
 #include <string>
-#include <tuple>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
-struct Airplane {
-  std::string name, manufacturer;
-  int capacity{};
-  double range{};
-  double max_speed{};
-};
+template <class T, class Compare> class AVLTree;
 
-std::ostream &operator<<(std::ostream &os, const Airplane &a) {
-  return os << a.manufacturer << ' ' << a.name
-            << ", capacity=" << a.capacity
-            << ", range=" << a.range
-            << ", max_speed=" << a.max_speed;
-}
-
-// Компаратор сравнивает сами объекты T.
-struct AirplaneCompare {
-  bool operator()(const Airplane &a, const Airplane &b) const {
-    return std::tie(a.manufacturer, a.name) < std::tie(b.manufacturer, b.name);
-  }
-};
-
-template <class T, class Compare = std::less<T>>
-class SearchTree {
+// 2.4. Универсальное несбалансированное дерево поиска.
+template <class T, class Compare> class SearchTree {
 protected:
   struct Node {
     T value;
     Node *left{}, *right{}, *parent{};
     Node(const T &v, Node *p = nullptr) : value(v), parent(p) {}
   };
-
   Node *root_{};
   Compare compare_{};
-
-  bool equivalent(const T &a, const T &b) const {
-    return !compare_(a, b) && !compare_(b, a);
-  }
-
-  static Node *minimum(Node *n) {
-    while (n && n->left) n = n->left;
+  Node *insert_right_node(const T &v) {
+    if (!root_)
+      return root_ = new Node(v);
+    Node *cur = root_;
+    Node *parent = nullptr;
+    while (cur) {
+      parent = cur;
+      cur = compare_(v, cur->value) ? cur->left : cur->right;
+    }
+    Node *n = new Node(v, parent);
+    if (compare_(v, parent->value))
+      parent->left = n;
+    else
+      parent->right = n;
     return n;
   }
-  static Node *maximum(Node *n) {
-    while (n && n->right) n = n->right;
-    return n;
-  }
-  static Node *successor(Node *n) {
-    if (!n) return nullptr;
-    if (n->right) return minimum(n->right);
-    Node *p = n->parent;
-    while (p && n == p->right) n = p, p = p->parent;
-    return p;
-  }
-  static Node *predecessor(Node *n) {
-    if (!n) return nullptr;
-    if (n->left) return maximum(n->left);
-    Node *p = n->parent;
-    while (p && n == p->left) n = p, p = p->parent;
-    return p;
-  }
-  void transplant(Node *u, Node *v) {
-    if (!u->parent) root_ = v;
-    else if (u == u->parent->left) u->parent->left = v;
-    else u->parent->right = v;
-    if (v) v->parent = u->parent;
+  static int height(Node *n) {
+    return n ? 1 + std::max(height(n->left), height(n->right)) : 0;
   }
   void destroy(Node *n) {
-    if (!n) return;
+    if (!n)
+      return;
     destroy(n->left);
     destroy(n->right);
     delete n;
   }
+  void print_inorder(Node *n, std::ostream &os) const {
+    if (!n)
+      return;
+    print_inorder(n->left, os);
+    os << n->value << '\n';
+    print_inorder(n->right, os);
+  }
 
 public:
   class iterator {
-    Node *node_{};
-    bool reverse_{};
+    Node *n_{};
     friend class SearchTree;
-    iterator(Node *n, bool reverse) : node_(n), reverse_(reverse) {}
+    friend class AVLTree<T, Compare>;
+
   public:
-    iterator() = default;
-    T &operator*() const { return node_->value; }
-    T *operator->() const { return &node_->value; }
-    bool operator==(const iterator &o) const { return node_ == o.node_; }
-    bool operator!=(const iterator &o) const { return !(*this == o); }
-    iterator &operator++() {
-      node_ = reverse_ ? predecessor(node_) : successor(node_);
-      return *this;
-    }
+    iterator(Node *n = nullptr) : n_(n) {}
+    T &operator*() const { return n_->value; }
+    bool operator!=(const iterator &o) const { return n_ != o.n_; }
   };
-
-  explicit SearchTree(Compare compare = Compare{}) : compare_(std::move(compare)) {}
   ~SearchTree() { destroy(root_); }
-  SearchTree(const SearchTree &) = delete;
-  SearchTree &operator=(const SearchTree &) = delete;
-
-  iterator begin() { return {minimum(root_), false}; }
-  iterator end() { return {nullptr, false}; }
-  iterator rbegin() { return {maximum(root_), true}; }
-  iterator rend() { return {nullptr, true}; }
-
-  // Уникальная вставка.
-  iterator add(const T &value) {
-    if (!root_) return {root_ = new Node(value), false};
-    Node *cur = root_, *parent = nullptr;
-    while (cur) {
-      parent = cur;
-      if (equivalent(value, cur->value)) return {cur, false};
-      cur = compare_(value, cur->value) ? cur->left : cur->right;
-    }
-    Node *n = new Node(value, parent);
-    if (compare_(value, parent->value)) parent->left = n;
-    else parent->right = n;
-    return {n, false};
-  }
-
-  // Вставка с дубликатами: эквивалентные элементы идут вправо.
-  iterator add_right(const T &value) {
-    if (!root_) return {root_ = new Node(value), false};
-    Node *cur = root_, *parent = nullptr;
-    while (cur) {
-      parent = cur;
-      cur = compare_(value, cur->value) ? cur->left : cur->right;
-    }
-    Node *n = new Node(value, parent);
-    if (compare_(value, parent->value)) parent->left = n;
-    else parent->right = n;
-    return {n, false};
-  }
-
-  iterator find(const T &value) {
-    Node *cur = root_;
-    while (cur) {
-      if (equivalent(value, cur->value)) return {cur, false};
-      cur = compare_(value, cur->value) ? cur->left : cur->right;
-    }
-    return end();
-  }
-
-  template <class Predicate>
-  iterator find_value(const T &wanted, Predicate predicate) {
-    for (auto it = begin(); it != end(); ++it)
-      if (predicate(*it, wanted)) return it;
-    return end();
-  }
-
-  template <class Predicate>
-  std::vector<T> find_all(Predicate predicate) {
-    std::vector<T> result;
-    for (auto it = begin(); it != end(); ++it)
-      if (predicate(*it)) result.push_back(*it);
-    return result;
-  }
-
-  bool erase(iterator position) {
-    Node *z = position.node_;
-    if (!z) return false;
-    if (!z->left) transplant(z, z->right);
-    else if (!z->right) transplant(z, z->left);
-    else {
-      Node *y = minimum(z->right);
-      if (y->parent != z) {
-        transplant(y, y->right);
-        y->right = z->right;
-        y->right->parent = y;
-      }
-      transplant(z, y);
-      y->left = z->left;
-      y->left->parent = y;
-    }
-    delete z;
-    return true;
-  }
-
-  bool erase(const T &value) {
-    auto it = find(value);
-    return it != end() && erase(it);
-  }
+  void print(std::ostream &os) const { print_inorder(root_, os); }
 };
 
-template <class T, class Compare = std::less<T>>
-class AVLTree {
-  struct Node {
-    T value;
-    Node *left{}, *right{}, *parent{};
-    Node(const T &v, Node *p = nullptr) : value(v), parent(p) {}
-  };
-
-  Node *root_{};
-  Compare compare_{};
-  std::unordered_map<Node *, int> heights_;
-
-  int height(Node *n) const { return n ? heights_.at(n) : 0; }
-  void update(Node *n) {
-    if (n) heights_[n] = 1 + std::max(height(n->left), height(n->right));
+// 2.5. AVL-дерево наследуется от несбалансированного дерева 2.4.
+template <class T, class Compare>
+class AVLTree : public SearchTree<T, Compare> {
+  using Base = SearchTree<T, Compare>;
+  using Node = typename Base::Node;
+  std::unordered_map<Node *, int> h_;
+  int h(Node *n) const { return n ? h_.at(n) : 0; }
+  void upd(Node *n) {
+    if (n)
+      h_[n] = 1 + std::max(h(n->left), h(n->right));
   }
-  int balance(Node *n) const { return n ? height(n->left) - height(n->right) : 0; }
-  static Node *minimum(Node *n) {
-    while (n && n->left) n = n->left;
-    return n;
-  }
-  static Node *maximum(Node *n) {
-    while (n && n->right) n = n->right;
-    return n;
-  }
-  static Node *successor(Node *n) {
-    if (!n) return nullptr;
-    if (n->right) return minimum(n->right);
-    Node *p = n->parent;
-    while (p && n == p->right) n = p, p = p->parent;
-    return p;
-  }
-  static Node *predecessor(Node *n) {
-    if (!n) return nullptr;
-    if (n->left) return maximum(n->left);
-    Node *p = n->parent;
-    while (p && n == p->left) n = p, p = p->parent;
-    return p;
-  }
-  Node *rotate_right(Node *y) {
-    Node *x = y->left, *t = x->right, *p = y->parent;
-    x->right = y; y->left = t; y->parent = x;
-    if (t) t->parent = y;
-    x->parent = p;
-    if (!p) root_ = x;
-    else if (p->left == y) p->left = x;
-    else p->right = x;
-    update(y); update(x);
-    return x;
-  }
-  Node *rotate_left(Node *x) {
-    Node *y = x->right, *t = y->left, *p = x->parent;
-    y->left = x; x->right = t; x->parent = y;
-    if (t) t->parent = x;
+  void left(Node *x) {
+    Node *y = x->right, *p = x->parent;
+    x->right = y->left;
+    if (y->left)
+      y->left->parent = x;
+    y->left = x;
+    x->parent = y;
     y->parent = p;
-    if (!p) root_ = y;
-    else if (p->left == x) p->left = y;
-    else p->right = y;
-    update(x); update(y);
-    return y;
+    if (!p)
+      this->root_ = y;
+    else if (p->left == x)
+      p->left = y;
+    else
+      p->right = y;
+    upd(x);
+    upd(y);
   }
-  Node *insert(Node *cur, const T &value, Node *parent) {
-    if (!cur) {
-      Node *n = new Node(value, parent);
-      heights_[n] = 1;
-      return n;
-    }
-    if (compare_(value, cur->value)) cur->left = insert(cur->left, value, cur);
-    else cur->right = insert(cur->right, value, cur);
-    update(cur);
-    int b = balance(cur);
-    if (b > 1) {
-      if (compare_(value, cur->left->value)) return rotate_right(cur);
-      cur->left = rotate_left(cur->left);
-      return rotate_right(cur);
-    }
-    if (b < -1) {
-      if (!compare_(value, cur->right->value)) return rotate_left(cur);
-      cur->right = rotate_right(cur->right);
-      return rotate_left(cur);
-    }
-    return cur;
+  void right(Node *y) {
+    Node *x = y->left, *p = y->parent;
+    y->left = x->right;
+    if (x->right)
+      x->right->parent = y;
+    x->right = y;
+    y->parent = x;
+    x->parent = p;
+    if (!p)
+      this->root_ = x;
+    else if (p->left == y)
+      p->left = x;
+    else
+      p->right = x;
+    upd(y);
+    upd(x);
   }
-  void destroy(Node *n) {
-    if (!n) return;
-    destroy(n->left); destroy(n->right);
-    heights_.erase(n); delete n;
+  void rebalance(Node *n) {
+    while (n) {
+      upd(n);
+      int b = h(n->left) - h(n->right);
+      if (b > 1) {
+        if (h(n->left->left) < h(n->left->right))
+          left(n->left);
+        right(n);
+      } else if (b < -1) {
+        if (h(n->right->right) < h(n->right->left))
+          right(n->right);
+        left(n);
+      }
+      n = n->parent;
+    }
   }
 
 public:
-  class iterator {
-    Node *node_{}; bool reverse_{};
-    friend class AVLTree;
-    iterator(Node *n, bool r) : node_(n), reverse_(r) {}
-  public:
-    iterator() = default;
-    T &operator*() const { return node_->value; }
-    T *operator->() const { return &node_->value; }
-    bool operator==(const iterator &o) const { return node_ == o.node_; }
-    bool operator!=(const iterator &o) const { return !(*this == o); }
-    iterator &operator++() {
-      node_ = reverse_ ? predecessor(node_) : successor(node_);
-      return *this;
-    }
-  };
-
-  explicit AVLTree(Compare compare = Compare{}) : compare_(std::move(compare)) {}
-  ~AVLTree() { destroy(root_); }
-  iterator begin() { return {minimum(root_), false}; }
-  iterator end() { return {nullptr, false}; }
-  iterator rbegin() { return {maximum(root_), true}; }
-  iterator rend() { return {nullptr, true}; }
-
-  // AVL-вариант допускает одинаковые элементы и помещает их вправо.
-  iterator add(const T &value) {
-    root_ = insert(root_, value, nullptr);
-    Node *cur = root_;
-    while (cur) {
-      if (!compare_(value, cur->value) && !compare_(cur->value, value))
-        return {cur, false};
-      cur = compare_(value, cur->value) ? cur->left : cur->right;
-    }
-    return end();
+  using typename Base::iterator;
+  void add(const T &v) {
+    Node *n = this->insert_right_node(v);
+    h_[n] = 1;
+    rebalance(n->parent);
+  }
+  std::vector<T> operator[](const T &key) const {
+    std::vector<T> r;
+    collect(this->root_, key, r);
+    return r;
   }
 
-  iterator find(const T &value) {
-    Node *cur = root_;
-    while (cur) {
-      if (!compare_(value, cur->value) && !compare_(cur->value, value))
-        return {cur, false};
-      cur = compare_(value, cur->value) ? cur->left : cur->right;
-    }
-    return end();
-  }
-
-  template <class Predicate>
-  std::vector<T> find_all(Predicate predicate) {
-    std::vector<T> result;
-    for (auto it = begin(); it != end(); ++it)
-      if (predicate(*it)) result.push_back(*it);
-    return result;
+private:
+  void collect(Node *n, const T &k, std::vector<T> &r) const {
+    if (!n)
+      return;
+    collect(n->left, k, r);
+    if (!this->compare_(n->value, k) && !this->compare_(k, n->value))
+      r.push_back(n->value);
+    collect(n->right, k, r);
   }
 };
 
-template <class Tree>
-void print_tree(Tree &tree, bool ascending = true) {
-  if (ascending)
-    for (auto it = tree.begin(); it != tree.end(); ++it) std::cout << *it << '\n';
-  else
-    for (auto it = tree.rbegin(); it != tree.rend(); ++it) std::cout << *it << '\n';
+struct Airplane {
+  std::string name, manufacturer;
+  int capacity{};
+  double range{}, max_speed{};
+};
+std::ostream &operator<<(std::ostream &os, const Airplane &a) {
+  return os << a.manufacturer << ' ' << a.name << " capacity=" << a.capacity;
 }
+struct AirplaneCompare {
+  bool operator()(const Airplane &a, const Airplane &b) const {
+    return a.manufacturer != b.manufacturer ? a.manufacturer < b.manufacturer
+                                            : a.name < b.name;
+  }
+};
 
 int main() {
-  using Tree = SearchTree<Airplane, AirplaneCompare>;
-  using AVL = AVLTree<Airplane, AirplaneCompare>;
-
-  Tree tree;
+  AVLTree<Airplane, AirplaneCompare> tree;
   tree.add({"A320", "Airbus", 180, 6100, 840});
+  tree.add({"A320", "Airbus", 186, 6100, 840});
   tree.add({"A321", "Airbus", 220, 5950, 840});
-  tree.add({"737-800", "Boeing", 189, 5765, 842});
-
-  std::cout << "BST:\n";
-  print_tree(tree);
-
-  auto found = tree.find_all([](const Airplane &a) {
-    return a.manufacturer == "Airbus" && a.name == "A320";
-  });
-  std::cout << "Airbus A320: " << found.size() << "\n\n";
-
-  AVL avl;
-  avl.add({"A320", "Airbus", 180, 6100, 840});
-  avl.add({"A320", "Airbus", 186, 6100, 840});
-  avl.add({"A321", "Airbus", 220, 5950, 840});
-  avl.add({"737-800", "Boeing", 189, 5765, 842});
-
-  std::cout << "AVL:\n";
-  print_tree(avl);
-
-  auto same_key = avl.find_all([](const Airplane &a) {
-    return a.manufacturer == "Airbus" && a.name == "A320";
-  });
-  std::cout << "Same key: " << same_key.size() << '\n';
+  tree.print(std::cout);
+  Airplane key{"A320", "Airbus"};
+  std::cout << "same key: " << tree[key].size() << '\n';
 }
