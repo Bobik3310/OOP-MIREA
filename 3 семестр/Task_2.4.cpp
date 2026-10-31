@@ -1,42 +1,54 @@
-#include <algorithm>
+#include <functional>
 #include <iostream>
 #include <string>
-#include <tuple>
-#include <vector>
 
-// 2.4. Небалансированное бинарное дерево поиска.
-template<class T, class Compare>
+// Дерево хранит Value, но сортирует объекты по отдельному Key.
+template<
+    class Value,
+    class Key,
+    class KeyOfValue,
+    class Compare = std::less<Key>
+>
 class SearchTree {
 protected:
     struct Node {
-        T value;
+        Value value;
         Node* left{};
         Node* right{};
         Node* parent{};
-        explicit Node(const T& v, Node* p=nullptr) : value(v), parent(p) {}
+
+        explicit Node(const Value& v, Node* p = nullptr)
+            : value(v), parent(p) {}
     };
 
     Node* root_{};
+    KeyOfValue key_of_{};
     Compare compare_{};
 
-    // a и b имеют одинаковый ключ, если ни один не меньше другого.
-    bool equivalent(const T& a, const T& b) const {
+    bool equivalent(const Key& a, const Key& b) const {
         return !compare_(a, b) && !compare_(b, a);
     }
 
-    Node* find_node(const T& sample) const {
+    Node* find_node(const Key& key) const {
         Node* current = root_;
+
         while (current) {
-            if (equivalent(sample, current->value))
+            const Key current_key = key_of_(current->value);
+
+            if (equivalent(key, current_key))
                 return current;
-            current = compare_(sample, current->value)
+
+            current = compare_(key, current_key)
                 ? current->left
                 : current->right;
         }
+
         return nullptr;
     }
 
-    Node* insert_unique(const T& value) {
+    Node* insert_unique(const Value& value) {
+        const Key value_key = key_of_(value);
+
         if (!root_)
             return root_ = new Node(value);
 
@@ -45,48 +57,68 @@ protected:
 
         while (current) {
             parent = current;
-            if (equivalent(value, current->value))
+
+            const Key current_key = key_of_(current->value);
+
+            if (equivalent(value_key, current_key))
                 return current;
-            current = compare_(value, current->value)
+
+            current = compare_(value_key, current_key)
                 ? current->left
                 : current->right;
         }
 
         Node* node = new Node(value, parent);
-        if (compare_(value, parent->value))
+
+        if (compare_(value_key, key_of_(parent->value)))
             parent->left = node;
         else
             parent->right = node;
+
         return node;
     }
 
     static Node* minimum(Node* node) {
-        while (node && node->left) node = node->left;
+        while (node && node->left)
+            node = node->left;
+
         return node;
     }
 
     static Node* successor(Node* node) {
-        if (!node) return nullptr;
-        if (node->right) return minimum(node->right);
+        if (!node)
+            return nullptr;
+
+        if (node->right)
+            return minimum(node->right);
+
         Node* parent = node->parent;
+
         while (parent && node == parent->right) {
             node = parent;
             parent = parent->parent;
         }
+
         return parent;
     }
 
     void replace(Node* old_node, Node* new_node) {
-        if (!old_node->parent) root_ = new_node;
-        else if (old_node == old_node->parent->left)
+        if (!old_node->parent) {
+            root_ = new_node;
+        } else if (old_node == old_node->parent->left) {
             old_node->parent->left = new_node;
-        else
+        } else {
             old_node->parent->right = new_node;
-        if (new_node) new_node->parent = old_node->parent;
+        }
+
+        if (new_node)
+            new_node->parent = old_node->parent;
     }
 
     void destroy(Node* node) {
-        if (!node) return;
+        if (!node)
+            return;
+
         destroy(node->left);
         destroy(node->right);
         delete node;
@@ -95,43 +127,72 @@ protected:
 public:
     class iterator {
         Node* node_{};
+
         friend class SearchTree;
-        explicit iterator(Node* node) : node_(node) {}
+
+        explicit iterator(Node* node)
+            : node_(node) {}
+
     public:
         iterator() = default;
-        T& operator*() const { return node_->value; }
-        T* operator->() const { return &node_->value; }
-        bool operator==(const iterator& other) const { return node_ == other.node_; }
-        bool operator!=(const iterator& other) const { return !(*this == other); }
-        iterator& operator++() { node_ = successor(node_); return *this; }
+
+        Value& operator*() const {
+            return node_->value;
+        }
+
+        Value* operator->() const {
+            return &node_->value;
+        }
+
+        bool operator==(const iterator& other) const {
+            return node_ == other.node_;
+        }
+
+        bool operator!=(const iterator& other) const {
+            return !(*this == other);
+        }
+
+        iterator& operator++() {
+            node_ = successor(node_);
+            return *this;
+        }
     };
 
-    ~SearchTree() { destroy(root_); }
+    ~SearchTree() {
+        destroy(root_);
+    }
 
-    iterator begin() { return iterator(minimum(root_)); }
-    iterator end() { return iterator(nullptr); }
+    iterator begin() {
+        return iterator(minimum(root_));
+    }
 
-    iterator add(const T& value) {
+    iterator end() {
+        return iterator(nullptr);
+    }
+
+    iterator add(const Value& value) {
         return iterator(insert_unique(value));
     }
 
-    iterator find(const T& sample) {
-        return iterator(find_node(sample));
+    iterator find(const Key& key) {
+        return iterator(find_node(key));
     }
-    using FindFunction = bool (*)(const T&, const T&);
 
-    // Поиск по ключу или значению через переданный указатель на функцию.
-    iterator find(const T& wanted, FindFunction equal) {
+    template<class Predicate>
+    iterator find_if(Predicate predicate) {
         for (auto it = begin(); it != end(); ++it) {
-            if (equal(*it, wanted))
+            if (predicate(*it))
                 return it;
         }
+
         return end();
     }
 
-    bool erase(const T& sample) {
-        Node* node = find_node(sample);
-        if (!node) return false;
+    bool erase(const Key& key) {
+        Node* node = find_node(key);
+
+        if (!node)
+            return false;
 
         if (!node->left) {
             replace(node, node->right);
@@ -139,12 +200,16 @@ public:
             replace(node, node->left);
         } else {
             Node* next = minimum(node->right);
+
             if (next->parent != node) {
                 replace(next, next->right);
+
                 next->right = node->right;
                 next->right->parent = next;
             }
+
             replace(node, next);
+
             next->left = node->left;
             next->left->parent = next;
         }
@@ -159,59 +224,93 @@ public:
     }
 };
 
+
 struct Airplane {
-    std::string name, manufacturer;
+    std::string name;
+    std::string manufacturer;
     int capacity{};
-    double range{}, max_speed{};
+    double range{};
+    double max_speed{};
 };
 
-std::ostream& operator<<(std::ostream& os, const Airplane& a) {
-    return os << a.manufacturer << ' ' << a.name
-              << ", capacity=" << a.capacity
-              << ", range=" << a.range
-              << ", max_speed=" << a.max_speed;
+std::ostream& operator<<(std::ostream& os, const Airplane& airplane) {
+    return os
+        << airplane.manufacturer << ' '
+        << airplane.name
+        << ", capacity=" << airplane.capacity
+        << ", range=" << airplane.range
+        << ", max_speed=" << airplane.max_speed;
 }
 
-// Компаратор задает ключ: производитель + название.
-struct AirplaneCompare {
-    bool operator()(const Airplane& a, const Airplane& b) const {
+
+// Отдельный тип ключа.
+struct AirplaneKey {
+    std::string manufacturer;
+    std::string name;
+};
+
+
+// Извлечение ключа из значения.
+struct AirplaneKeyOfValue {
+    AirplaneKey operator()(const Airplane& airplane) const {
+        return {
+            airplane.manufacturer,
+            airplane.name
+        };
+    }
+};
+
+
+// Сравнение ключей.
+struct AirplaneKeyCompare {
+    bool operator()(const AirplaneKey& a,
+                    const AirplaneKey& b) const {
         if (a.manufacturer != b.manufacturer)
             return a.manufacturer < b.manufacturer;
+
         return a.name < b.name;
     }
 };
 
-bool compare_key(const Airplane& a, const Airplane& b) {
-    return a.manufacturer == b.manufacturer && a.name == b.name;
-}
-
-bool compare_capacity(const Airplane& a, const Airplane& b) {
-    return a.capacity == b.capacity;
-}
 
 int main() {
-    using Tree = SearchTree<Airplane, AirplaneCompare>;
+    using Tree = SearchTree<
+        Airplane,
+        AirplaneKey,
+        AirplaneKeyOfValue,
+        AirplaneKeyCompare
+    >;
+
     Tree tree;
 
-    tree.add({"A320", "Airbus", 180, 6100, 840});
-    tree.add({"737-800", "Boeing", 189, 5765, 842});
-    tree.add({"A321", "Airbus", 220, 5950, 840});
-    tree.add({"A350", "Airbus", 325, 15000, 905});
+    tree.add({"A320",   "Airbus", 180, 6100,  840});
+    tree.add({"737-800","Boeing",189, 5765,  842});
+    tree.add({"A321",   "Airbus",220, 5950,  840});
+    tree.add({"A350",   "Airbus",325, 15000, 905});
 
     std::cout << "Дерево по возрастанию ключа:\n";
     tree.print(std::cout);
 
-    Airplane key{"A321", "Airbus"};
-    auto found_by_key = tree.find(key, compare_key);
-    if (found_by_key != tree.end())
-        std::cout << "\nНайдено по ключу: " << *found_by_key << '\n';
+    AirplaneKey key{"Airbus", "A321"};
 
-    Airplane sample{"", "", 220, 0, 0};
-    auto found_by_value = tree.find(sample, compare_capacity);
-    if (found_by_value != tree.end())
-        std::cout << "Найдено по значению: " << *found_by_value << '\n';
+    auto found_by_key = tree.find(key);
+
+    if (found_by_key != tree.end())
+        std::cout << "\nНайдено по ключу: "
+                  << *found_by_key << '\n';
+
+    auto found_by_capacity = tree.find_if(
+        [](const Airplane& airplane) {
+            return airplane.capacity == 220;
+        }
+    );
+
+    if (found_by_capacity != tree.end())
+        std::cout << "Найдено по вместимости: "
+                  << *found_by_capacity << '\n';
 
     tree.erase(key);
+
     std::cout << "\nПосле удаления:\n";
     tree.print(std::cout);
 }
