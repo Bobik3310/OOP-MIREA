@@ -1,8 +1,12 @@
+#include <functional>
 #include <iostream>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 using namespace std;
@@ -20,36 +24,37 @@ ostream& operator<<(ostream& out, const Airplane& airplane) {
         << ", скорость: " << airplane.maxSpeed;
 
     return out;
-}
+};
 
 using AirplaneTable = unordered_map<int, Airplane>;
 
-void addAirplane(
-    AirplaneTable& table,
-    int id,
-    const Airplane& airplane
-) {
-    auto [iterator, inserted] = table.emplace(id, airplane);
+template<class Table, class Key, class Value>
+void addEntry(Table& table, Key&& key, Value&& value) {
+    auto [iterator, inserted] = table.emplace(
+        forward<Key>(key),
+        forward<Value>(value)
+    );
 
     if (!inserted) {
-        throw invalid_argument(
-            "Самолёт с таким идентификатором уже существует: "
-            + to_string(id)
-        );
+        ostringstream message;
+        message << "Запись с таким ключом уже существует: "
+                << key;
+
+        throw invalid_argument(message.str());
     }
 }
 
-void printTable(const AirplaneTable& table) {
-    for (const auto& [id, airplane] : table) {
-        cout << id << " -> " << airplane << '\n';
+template<class Table>
+void printTable(const Table& table) {
+    for (const auto& [key, value] : table) {
+        cout << key << " -> " << value << '\n';
     }
 }
 
-const Airplane* findById(
-    const AirplaneTable& table,
-    int id
-) {
-    auto iterator = table.find(id);
+template<class Table, class Key>
+const typename Table::mapped_type*
+findByKey(const Table& table, const Key& key) {
+    auto iterator = table.find(key);
 
     if (iterator == table.end()) {
         return nullptr;
@@ -58,93 +63,93 @@ const Airplane* findById(
     return &iterator->second;
 }
 
-vector<int> findByValue(
-    const AirplaneTable& table,
-    int range,
-    int speed
-) {
-    vector<int> result;
+template<class Table, class Predicate>
+vector<typename Table::key_type>
+findBy(const Table& table, Predicate predicate) {
+    vector<typename Table::key_type> result;
 
-    for (const auto& [id, airplane] : table) {
-        if (airplane.flightRange == range &&
-            airplane.maxSpeed == speed) {
-            result.push_back(id);
+    for (const auto& [key, value] : table) {
+        if (predicate(key, value)) {
+            result.push_back(key);
         }
     }
 
     return result;
 }
 
-template <typename Predicate>
-AirplaneTable filter(
-    const AirplaneTable& table,
-    Predicate predicate
-) {
-    AirplaneTable result;
+template<class Table, class Predicate>
+Table filter(const Table& table, Predicate predicate) {
+    Table result;
 
-    for (const auto& [id, airplane] : table) {
-        if (predicate(id, airplane)) {
-            result.emplace(id, airplane);
+    for (const auto& [key, value] : table) {
+        if (predicate(key, value)) {
+            result.emplace(key, value);
         }
     }
 
     return result;
 }
 
-AirplaneTable filterById(
-    const AirplaneTable& table,
-    int threshold
+template<class Table, class Threshold>
+Table filterByKeyGreaterThan(
+    const Table& table,
+    const Threshold& threshold
 ) {
     return filter(
         table,
-        [threshold](int id, const Airplane&) {
-            return id > threshold;
+        [&threshold](const auto& key, const auto&) {
+            return key > threshold;
         }
     );
 }
 
-vector<pair<int, int>> getUniqueValues(
-    const AirplaneTable& table
+template<class Table, class Projection>
+auto getUniqueValues(
+    const Table& table,
+    Projection projection
 ) {
-    set<pair<int, int>> uniqueValues;
+    using Mapped = typename Table::mapped_type;
 
-    for (const auto& [id, airplane] : table) {
-        uniqueValues.emplace(
-            airplane.flightRange,
-            airplane.maxSpeed
-        );
+    using ProjectedValue = decay_t<
+        invoke_result_t<Projection, const Mapped&>
+    >;
+
+    set<ProjectedValue> uniqueValues;
+
+    for (const auto& [key, value] : table) {
+        uniqueValues.insert(projection(value));
     }
 
-    return {
+    return vector<ProjectedValue>(
         uniqueValues.begin(),
         uniqueValues.end()
-    };
+    );
 }
 
 int main() {
     AirplaneTable airplanes;
 
-    addAirplane(airplanes, 1,
-        {"737", "Boeing", 5600, 850});
+    addEntry(airplanes, 1,
+        Airplane{"737", "Boeing", 5600, 850});
 
-    addAirplane(airplanes, 2,
-        {"A320", "Airbus", 6100, 840});
+    addEntry(airplanes, 2,
+        Airplane{"A320", "Airbus", 6100, 840});
 
-    addAirplane(airplanes, 3,
-        {"787", "Boeing", 13600, 954});
+    addEntry(airplanes, 3,
+        Airplane{"787", "Boeing", 13600, 954});
 
-    addAirplane(airplanes, 4,
-        {"A350", "Airbus", 15000, 945});
+    addEntry(airplanes, 4,
+        Airplane{"A350", "Airbus", 15000, 945});
 
-    addAirplane(airplanes, 5,
-        {"MS-21", "Irkut", 6000, 870});
+    addEntry(airplanes, 5,
+        Airplane{"MS-21", "Irkut", 6000, 870});
 
     cout << "Исходная таблица:\n";
     printTable(airplanes);
 
-    cout << "\nПоиск по идентификатору:\n";
+    cout << "\nПоиск по ключу:\n";
 
-    const Airplane* found = findById(airplanes, 3);
+    const Airplane* found = findByKey(airplanes, 3);
 
     if (found != nullptr) {
         cout << *found << '\n';
@@ -154,10 +159,12 @@ int main() {
 
     cout << "\nПоиск по значению:\n";
 
-    vector<int> foundIds = findByValue(
+    auto foundIds = findBy(
         airplanes,
-        5600,
-        850
+        [](int, const Airplane& airplane) {
+            return airplane.flightRange == 5600 &&
+                   airplane.maxSpeed == 850;
+        }
     );
 
     for (int id : foundIds) {
@@ -166,13 +173,20 @@ int main() {
 
     cout << "\nФильтрация:\n";
 
-    AirplaneTable filtered = filterById(airplanes, 2);
+    auto filtered = filterByKeyGreaterThan(airplanes, 2);
     printTable(filtered);
 
     cout << "\nРазличные значения:\n";
 
-    vector<pair<int, int>> values =
-        getUniqueValues(airplanes);
+    auto values = getUniqueValues(
+        airplanes,
+        [](const Airplane& airplane) {
+            return pair{
+                airplane.flightRange,
+                airplane.maxSpeed
+            };
+        }
+    );
 
     for (const auto& [range, speed] : values) {
         cout << "Дальность: " << range
@@ -182,10 +196,10 @@ int main() {
     cout << "\nПроверка дубликата:\n";
 
     try {
-        addAirplane(
+        addEntry(
             airplanes,
             3,
-            {"787", "Boeing", 13600, 954}
+            Airplane{"787", "Boeing", 13600, 954}
         );
     } catch (const invalid_argument& error) {
         cout << error.what() << '\n';
