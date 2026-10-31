@@ -3,17 +3,18 @@
 #include <list>
 #include <vector>
 #include <stdexcept>
-#include <algorithm>
+#include <functional>
+#include <utility>
 
 using namespace std;
 
 class Airplane {
 private:
-    string name;          // название самолета
-    string manufacturer;  // производитель
-    int capacity;         // вместимость
-    int flightRange;      // дальность полета
-    int maxSpeed;         // максимальная скорость
+    string name;
+    string manufacturer;
+    int capacity;
+    int flightRange;
+    int maxSpeed;
 
 public:
     Airplane(
@@ -22,15 +23,46 @@ public:
         int c = 0,
         int r = 0,
         int s = 0
-    ) {
-        name = n;
-        manufacturer = m;
-        capacity = c;
-        flightRange = r;
-        maxSpeed = s;
-    }
+    )
+        : name(move(n)),
+          manufacturer(move(m)),
+          capacity(c),
+          flightRange(r),
+          maxSpeed(s) {}
 
-    bool operator>(const Airplane& other) const {
+    friend ostream& operator<<(ostream& os, const Airplane& plane) {
+        os << "Name: " << plane.name
+           << ", Manufacturer: " << plane.manufacturer
+           << ", Capacity: " << plane.capacity
+           << ", Range: " << plane.flightRange
+           << ", Max speed: " << plane.maxSpeed;
+
+        return os;
+    }
+};
+
+// Отдельный тип приоритета
+class AirplanePriority {
+private:
+    int capacity;
+    int flightRange;
+    string manufacturer;
+    string name;
+
+public:
+    AirplanePriority(
+        int c = 0,
+        int r = 0,
+        string m = "",
+        string n = ""
+    )
+        : capacity(c),
+          flightRange(r),
+          manufacturer(move(m)),
+          name(move(n)) {}
+
+    // true, если текущий приоритет выше другого
+    bool operator>(const AirplanePriority& other) const {
         if (capacity != other.capacity) {
             return capacity > other.capacity;
         }
@@ -46,117 +78,105 @@ public:
         return name < other.name;
     }
 
-    bool operator<(const Airplane& other) const {
-        return other > *this;
-    }
-
-    friend ostream& operator<<(ostream& os, const Airplane& plane) {
-        os << "Name: " << plane.name
-           << ", Manufacturer: " << plane.manufacturer
-           << ", Capacity: " << plane.capacity
-           << ", Range: " << plane.flightRange
-           << ", Max speed: " << plane.maxSpeed;
+    friend ostream& operator<<(
+        ostream& os,
+        const AirplanePriority& priority
+    ) {
+        os << "(capacity = " << priority.capacity
+           << ", range = " << priority.flightRange
+           << ", manufacturer = " << priority.manufacturer
+           << ", name = " << priority.name << ")";
 
         return os;
     }
 };
 
-// Узел фибоначчиевой пирамиды
-template <class T>
+template<class Value, class Priority>
 class FibonacciNode {
 private:
-    T value;
-    FibonacciNode<T>* parent;
-    list<FibonacciNode<T>*> children;
+    Value value;
+    Priority priority;
+
+    FibonacciNode<Value, Priority>* parent;
+    list<FibonacciNode<Value, Priority>*> children;
 
 public:
-    FibonacciNode(const T& v = T()) {
-        value = v;
-        parent = nullptr;
-    }
+    FibonacciNode(
+        const Value& v,
+        const Priority& p
+    )
+        : value(v),
+          priority(p),
+          parent(nullptr) {}
 
-    T getValue() const {
+    const Value& getValue() const {
         return value;
     }
 
-    void setValue(const T& v) {
-        value = v;
+    const Priority& getPriority() const {
+        return priority;
     }
 
-    FibonacciNode<T>* getParent() const {
+    FibonacciNode<Value, Priority>* getParent() const {
         return parent;
     }
 
-    void setParent(FibonacciNode<T>* p) {
+    void setParent(FibonacciNode<Value, Priority>* p) {
         parent = p;
     }
 
-    list<FibonacciNode<T>*>& getChildren() {
+    list<FibonacciNode<Value, Priority>*>& getChildren() {
         return children;
     }
 
-    const list<FibonacciNode<T>*>& getChildren() const {
+    const list<FibonacciNode<Value, Priority>*>& getChildren() const {
         return children;
     }
 
     int degree() const {
         return static_cast<int>(children.size());
     }
-
-    bool operator>(const FibonacciNode<T>& other) const {
-        return value > other.value;
-    }
-
-    bool operator<(const FibonacciNode<T>& other) const {
-        return value < other.value;
-    }
 };
 
-// Фибоначчиева пирамида, максимум хранится на верхнем уровне
-template <class T>
+template<
+    class Value,
+    class Priority,
+    class Compare = greater<Priority>
+>
 class FibonacciHeap {
 private:
+    using Node = FibonacciNode<Value, Priority>;
 
-    list<FibonacciNode<T>*> roots;
-
-    // Указатель на максимальный корень
-    FibonacciNode<T>* maxNode;
-
-    // Количество элементов
+    list<Node*> roots;
+    Node* maxNode;
     int count;
+    Compare compare;
 
-    // Рекурсивное удаление дерева
-    void destroySubtree(FibonacciNode<T>* node) {
+    bool hasHigherPriority(
+        const Node* first,
+        const Node* second
+    ) const {
+        return compare(
+            first->getPriority(),
+            second->getPriority()
+        );
+    }
+
+    void destroySubtree(Node* node) {
         if (node == nullptr) {
             return;
         }
 
-        typename list<FibonacciNode<T>*>::iterator it;
-
-        for (it = node->getChildren().begin(); it != node->getChildren().end(); ++it) {
-            destroySubtree(*it);
+        for (Node* child : node->getChildren()) {
+            destroySubtree(child);
         }
 
         delete node;
     }
 
-    // Сделать nodeChild ребенком nodeParent
-    void link(FibonacciNode<T>* nodeChild, FibonacciNode<T>* nodeParent) {
-        nodeChild->setParent(nodeParent);
-        nodeParent->getChildren().push_back(nodeChild);
-    }
-
-    // Пересчитать maxNode по списку корней
-    void updateMaxNode() {
-        maxNode = nullptr;
-
-        typename list<FibonacciNode<T>*>::iterator it;
-
-        for (it = roots.begin(); it != roots.end(); ++it) {
-            if (maxNode == nullptr || **it > *maxNode) {
-                maxNode = *it;
-            }
-        }
+    void link(Node* child, Node* parent) {
+        child->setParent(parent);
+        parent->getChildren().push_back(child);
     }
 
     void consolidate() {
@@ -165,73 +185,72 @@ private:
             return;
         }
 
-        vector<FibonacciNode<T>*> table(count + 2, nullptr);
+        vector<Node*> table(count + 2, nullptr);
 
-        list<FibonacciNode<T>*> oldRoots = roots;
+        list<Node*> oldRoots = roots;
         roots.clear();
 
-        typename list<FibonacciNode<T>*>::iterator it;
+        for (Node* current : oldRoots) {
+            current->setParent(nullptr);
 
-        for (it = oldRoots.begin(); it != oldRoots.end(); ++it) {
-            FibonacciNode<T>* x = *it;
-            x->setParent(nullptr);
-
-            int d = x->degree();
+            int degree = current->degree();
 
             while (true) {
-                if (d >= static_cast<int>(table.size())) {
-                    table.resize(d + 2, nullptr);
+                if (degree >= static_cast<int>(table.size())) {
+                    table.resize(degree + 2, nullptr);
                 }
 
-                if (table[d] == nullptr) {
-                    table[d] = x;
+                if (table[degree] == nullptr) {
+                    table[degree] = current;
                     break;
                 }
 
-                FibonacciNode<T>* y = table[d];
-                table[d] = nullptr;
+                Node* other = table[degree];
+                table[degree] = nullptr;
 
-                if (*y > *x) {
-                    swap(x, y);
+                if (hasHigherPriority(other, current)) {
+                    swap(current, other);
                 }
 
-                link(y, x);
-                d = x->degree();
+                link(other, current);
+                degree = current->degree();
             }
         }
 
         maxNode = nullptr;
 
-        for (int i = 0; i < static_cast<int>(table.size()); i++) {
-            if (table[i] != nullptr) {
-                roots.push_back(table[i]);
+        for (Node* node : table) {
+            if (node != nullptr) {
+                roots.push_back(node);
 
-                if (maxNode == nullptr || *table[i] > *maxNode) {
-                    maxNode = table[i];
+                if (
+                    maxNode == nullptr ||
+                    hasHigherPriority(node, maxNode)
+                ) {
+                    maxNode = node;
                 }
             }
         }
     }
 
 public:
-    FibonacciHeap() {
-        maxNode = nullptr;
-        count = 0;
-    }
+    FibonacciHeap()
+        : maxNode(nullptr),
+          count(0),
+          compare(Compare()) {}
 
-    FibonacciHeap(const FibonacciHeap<T>& other) = delete;
-    FibonacciHeap<T>& operator=(const FibonacciHeap<T>& other) = delete;
+    explicit FibonacciHeap(const Compare& comparator)
+        : maxNode(nullptr),
+          count(0),
+          compare(comparator) {}
+
+    FibonacciHeap(const FibonacciHeap&) = delete;
+    FibonacciHeap& operator=(const FibonacciHeap&) = delete;
 
     ~FibonacciHeap() {
-        typename list<FibonacciNode<T>*>::iterator it;
-
-        for (it = roots.begin(); it != roots.end(); ++it) {
-            destroySubtree(*it);
+        for (Node* root : roots) {
+            destroySubtree(root);
         }
-
-        roots.clear();
-        maxNode = nullptr;
-        count = 0;
     }
 
     int getCount() const {
@@ -242,21 +261,25 @@ public:
         return count == 0;
     }
 
-    // Добавление нового элемента на верхний уровень
-    void push(const T& value) {
-        FibonacciNode<T>* newNode = new FibonacciNode<T>(value);
+    void push(
+        const Value& value,
+        const Priority& priority
+    ) {
+        Node* newNode = new Node(value, priority);
 
         roots.push_back(newNode);
 
-        if (maxNode == nullptr || *newNode > *maxNode) {
+        if (
+            maxNode == nullptr ||
+            hasHigherPriority(newNode, maxNode)
+        ) {
             maxNode = newNode;
         }
 
-        count++;
+        ++count;
     }
 
-    // Посмотреть максимум без удаления
-    T getMax() const {
+    const Value& getMax() const {
         if (maxNode == nullptr) {
             throw underflow_error("FibonacciHeap is empty");
         }
@@ -264,29 +287,33 @@ public:
         return maxNode->getValue();
     }
 
-    T ExtractMax() {
+    const Priority& getMaxPriority() const {
         if (maxNode == nullptr) {
             throw underflow_error("FibonacciHeap is empty");
         }
 
-        FibonacciNode<T>* oldMax = maxNode;
-        T result = oldMax->getValue();
+        return maxNode->getPriority();
+    }
 
-        // Удаляем максимальный корень с верхнего уровня
+    Value ExtractMax() {
+        if (maxNode == nullptr) {
+            throw underflow_error("FibonacciHeap is empty");
+        }
+
+        Node* oldMax = maxNode;
+        Value result = oldMax->getValue();
+
         roots.remove(oldMax);
 
-        // Его дети становятся корнями верхнего уровня
-        typename list<FibonacciNode<T>*>::iterator it;
-
-        for (it = oldMax->getChildren().begin(); it != oldMax->getChildren().end(); ++it) {
-            (*it)->setParent(nullptr);
-            roots.push_back(*it);
+        for (Node* child : oldMax->getChildren()) {
+            child->setParent(nullptr);
+            roots.push_back(child);
         }
 
         oldMax->getChildren().clear();
 
         delete oldMax;
-        count--;
+        --count;
 
         if (roots.empty()) {
             maxNode = nullptr;
@@ -297,39 +324,70 @@ public:
         return result;
     }
 
-    // Вывод только верхнего уровня
     void printRootLevel() const {
-        cout << "Root level:" << endl;
+        cout << "Root level:\n";
 
-        typename list<FibonacciNode<T>*>::const_iterator it;
-
-        for (it = roots.begin(); it != roots.end(); ++it) {
-            cout << (*it)->getValue()
-                 << " | degree = " << (*it)->degree()
-                 << endl;
+        for (Node* node : roots) {
+            cout << node->getValue()
+                 << " | priority = "
+                 << node->getPriority()
+                 << " | degree = "
+                 << node->degree()
+                 << '\n';
         }
     }
 };
 
 int main() {
-    FibonacciHeap<Airplane> heap;
+    FibonacciHeap<Airplane, AirplanePriority> heap;
 
-    heap.push(Airplane("A320", "Airbus", 180, 6100, 871));
-    heap.push(Airplane("A321", "Airbus", 220, 5950, 871));
-    heap.push(Airplane("737 MAX 8", "Boeing", 210, 6570, 839));
-    heap.push(Airplane("MS-21", "Irkut", 211, 6000, 870));
-    heap.push(Airplane("Tu-204", "Tupolev", 210, 4300, 850));
-    heap.push(Airplane("CRJ-900", "Bombardier", 90, 2950, 880));
-    heap.push(Airplane("A330", "Airbus", 250, 11750, 913));
-    heap.push(Airplane("787", "Boeing", 250, 13620, 954));
+    heap.push(
+        Airplane("A320", "Airbus", 180, 6100, 871),
+        AirplanePriority(180, 6100, "Airbus", "A320")
+    );
 
-    cout << "Initial Fibonacci heap root level:" << endl;
+    heap.push(
+        Airplane("A321", "Airbus", 220, 5950, 871),
+        AirplanePriority(220, 5950, "Airbus", "A321")
+    );
+
+    heap.push(
+        Airplane("737 MAX 8", "Boeing", 210, 6570, 839),
+        AirplanePriority(210, 6570, "Boeing", "737 MAX 8")
+    );
+
+    heap.push(
+        Airplane("MS-21", "Irkut", 211, 6000, 870),
+        AirplanePriority(211, 6000, "Irkut", "MS-21")
+    );
+
+    heap.push(
+        Airplane("Tu-204", "Tupolev", 210, 4300, 850),
+        AirplanePriority(210, 4300, "Tupolev", "Tu-204")
+    );
+
+    heap.push(
+        Airplane("CRJ-900", "Bombardier", 90, 2950, 880),
+        AirplanePriority(90, 2950, "Bombardier", "CRJ-900")
+    );
+
+    heap.push(
+        Airplane("A330", "Airbus", 250, 11750, 913),
+        AirplanePriority(250, 11750, "Airbus", "A330")
+    );
+
+    heap.push(
+        Airplane("787", "Boeing", 250, 13620, 954),
+        AirplanePriority(250, 13620, "Boeing", "787")
+    );
+
+    cout << "Initial Fibonacci heap root level:\n";
     heap.printRootLevel();
 
-    cout << "\nExtractMax output, descending priority:" << endl;
+    cout << "\nExtractMax output:\n";
 
     while (!heap.empty()) {
-        cout << heap.ExtractMax() << endl;
+        cout << heap.ExtractMax() << '\n';
     }
 
     return 0;
