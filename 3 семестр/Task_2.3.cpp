@@ -7,15 +7,13 @@
 
 using namespace std;
 
-// Данные об одном самолёте.
 struct Airplane {
-    string name;          // Модель самолёта
-    string manufacturer;  // Производитель
-    int flightRange;      // Дальность полёта
-    int maxSpeed;         // Максимальная скорость
+    string name;
+    string manufacturer;
+    int flightRange;
+    int maxSpeed;
 };
 
-// Позволяет выводить объект Airplane через cout.
 ostream& operator<<(ostream& out, const Airplane& airplane) {
     out << airplane.manufacturer << ' ' << airplane.name
         << ", дальность: " << airplane.flightRange
@@ -24,53 +22,34 @@ ostream& operator<<(ostream& out, const Airplane& airplane) {
     return out;
 }
 
-/*
-    Построение хеш-таблицы.
-    Ключом будет строка вида: "Производитель Модель"
-    Значением будет объект Airplane.
-*/
-using AirplaneTable = unordered_map<string, Airplane>;
+using AirplaneTable = unordered_map<int, Airplane>;
 
-// Формирование ключа из производителя и названия самолёта.
-string makeKey(const string& manufacturer, const string& name) {
-    return manufacturer + ' ' + name;
-}
+void addAirplane(
+    AirplaneTable& table,
+    int id,
+    const Airplane& airplane
+) {
+    auto [iterator, inserted] = table.emplace(id, airplane);
 
-/*
-    Добавление элемента в хеш-таблицу.
-    Если такой ключ уже существует, генерируется исключение.
-*/
-void addAirplane(AirplaneTable& table, const Airplane& airplane) {
-    string key = makeKey(airplane.manufacturer, airplane.name);
-
-    // emplace пытается добавить новую пару «ключ — значение».
-    auto [iterator, inserted] = table.emplace(key, airplane);
-
-    // Если inserted == false, такой ключ уже есть.
     if (!inserted) {
-        throw invalid_argument("Ключ уже существует: " + key);
+        throw invalid_argument(
+            "Самолёт с таким идентификатором уже существует: "
+            + to_string(id)
+        );
     }
 }
 
-/*
-    Вывод содержимого таблицы с помощью итератора.
-    У unordered_map порядок элементов не определён.
-*/
 void printTable(const AirplaneTable& table) {
-    AirplaneTable::const_iterator iterator = table.cbegin();
-
-    while (iterator != table.cend()) {
-        cout << iterator->first << " -> " << iterator->second << '\n';
-        ++iterator;
+    for (const auto& [id, airplane] : table) {
+        cout << id << " -> " << airplane << '\n';
     }
 }
 
-/*
-    Поиск элемента по ключу.
-    Метод find() ищет элемент по ключу.
-*/
-const Airplane* findByKey(const AirplaneTable& table, const string& key) {
-    auto iterator = table.find(key);
+const Airplane* findById(
+    const AirplaneTable& table,
+    int id
+) {
+    auto iterator = table.find(id);
 
     if (iterator == table.end()) {
         return nullptr;
@@ -79,132 +58,135 @@ const Airplane* findByKey(const AirplaneTable& table, const string& key) {
     return &iterator->second;
 }
 
-/*
-    Поиск элементов по значению.
-    unordered_map быстро ищет только по ключу.
-    Поэтому для поиска по полям значения
-    приходится просмотреть всю таблицу.
-*/
-vector<string> findByValue(const AirplaneTable& table, int range, int speed) {
-    vector<string> result;
+vector<int> findByValue(
+    const AirplaneTable& table,
+    int range,
+    int speed
+) {
+    vector<int> result;
 
-    for (const auto& [key, airplane] : table) {
-        if (airplane.flightRange == range && airplane.maxSpeed == speed) {
-            result.push_back(key);
+    for (const auto& [id, airplane] : table) {
+        if (airplane.flightRange == range &&
+            airplane.maxSpeed == speed) {
+            result.push_back(id);
         }
     }
 
     return result;
 }
 
-/*
-    Функция filter().
-    Функция принимает предикат.
-    Предикат получает ключ и значение и
-    возвращает true или false.
-    В результат попадают только элементы,
-    для которых предикат вернул true.
-*/
 template <typename Predicate>
-AirplaneTable filter(const AirplaneTable& table, Predicate predicate) {
+AirplaneTable filter(
+    const AirplaneTable& table,
+    Predicate predicate
+) {
     AirplaneTable result;
 
-    for (const auto& element : table) {
-        if (predicate(element.first, element.second)) {
-            result.emplace(element.first, element.second);
+    for (const auto& [id, airplane] : table) {
+        if (predicate(id, airplane)) {
+            result.emplace(id, airplane);
         }
     }
 
     return result;
 }
 
-/*
-    Версия filter(), если threshold присутствует среди ключей таблицы.
-*/
-AirplaneTable filterWithExistingThreshold(const AirplaneTable& table, const string& threshold) {
-    // Проверяем наличие ключа threshold.
-    table.find(threshold);
-
-    return filter(table, [&threshold](const string& key, const Airplane&) {
-            return key > threshold;
+AirplaneTable filterById(
+    const AirplaneTable& table,
+    int threshold
+) {
+    return filter(
+        table,
+        [threshold](int id, const Airplane&) {
+            return id > threshold;
         }
     );
 }
 
-/*
-    Версия filter(), если threshold может отсутствовать в таблице.
-*/
-AirplaneTable filterWithoutThreshold(const AirplaneTable& table, const string& threshold) {
-    return filter(table, [&threshold](const string& key, const Airplane&) {
-            return key > threshold;
-        }
-    );
-}
-
-/*
-    Функция получения различных значений.
-    В set помещаются пары: «дальность полёта — максимальная скорость».
-    set автоматически удаляет повторы.
-    Затем содержимое set преобразуется в vector.
-*/
-vector<pair<int, int>> getUniqueValues(const AirplaneTable& table) {
+vector<pair<int, int>> getUniqueValues(
+    const AirplaneTable& table
+) {
     set<pair<int, int>> uniqueValues;
 
-    for (const auto& [key, airplane] : table) {
-        uniqueValues.emplace(airplane.flightRange, airplane.maxSpeed);
+    for (const auto& [id, airplane] : table) {
+        uniqueValues.emplace(
+            airplane.flightRange,
+            airplane.maxSpeed
+        );
     }
 
-    return {uniqueValues.begin(), uniqueValues.end()};
+    return {
+        uniqueValues.begin(),
+        uniqueValues.end()
+    };
 }
 
 int main() {
     AirplaneTable airplanes;
-    addAirplane(airplanes, {"737", "Boeing", 5600, 850});
-    addAirplane(airplanes, {"A320", "Airbus", 6100, 840});
-    addAirplane(airplanes, {"787", "Boeing", 13600, 954});
-    addAirplane(airplanes, {"A350", "Airbus", 15000, 945});
-    addAirplane( airplanes, {"MS-21", "Irkut", 6000, 870});
-    cout << "Исходная хеш-таблица:\n";
+
+    addAirplane(airplanes, 1,
+        {"737", "Boeing", 5600, 850});
+
+    addAirplane(airplanes, 2,
+        {"A320", "Airbus", 6100, 840});
+
+    addAirplane(airplanes, 3,
+        {"787", "Boeing", 13600, 954});
+
+    addAirplane(airplanes, 4,
+        {"A350", "Airbus", 15000, 945});
+
+    addAirplane(airplanes, 5,
+        {"MS-21", "Irkut", 6000, 870});
+
+    cout << "Исходная таблица:\n";
     printTable(airplanes);
 
+    cout << "\nПоиск по идентификатору:\n";
 
+    const Airplane* found = findById(airplanes, 3);
 
-    cout << "\nПоиск по ключу:\n";
-    const Airplane* found = findByKey(airplanes, "Boeing 787");
     if (found != nullptr) {
         cout << *found << '\n';
     } else {
         cout << "Самолёт не найден\n";
     }
 
-
-
     cout << "\nПоиск по значению:\n";
-    vector<string> foundKeys = findByValue(airplanes, 5600, 850);
-    for (const string& key : foundKeys) {
-        cout << key << '\n';
+
+    vector<int> foundIds = findByValue(
+        airplanes,
+        5600,
+        850
+    );
+
+    for (int id : foundIds) {
+        cout << "Идентификатор: " << id << '\n';
     }
 
-
-
     cout << "\nФильтрация:\n";
-    AirplaneTable filtered = filterWithoutThreshold(airplanes, "Airbus");
+
+    AirplaneTable filtered = filterById(airplanes, 2);
     printTable(filtered);
 
-
-
     cout << "\nРазличные значения:\n";
-    vector<pair<int, int>> values = getUniqueValues(airplanes);
+
+    vector<pair<int, int>> values =
+        getUniqueValues(airplanes);
+
     for (const auto& [range, speed] : values) {
         cout << "Дальность: " << range
              << ", скорость: " << speed << '\n';
     }
 
-
-
     cout << "\nПроверка дубликата:\n";
+
     try {
-        addAirplane(airplanes, {"787", "Boeing", 13600, 954});
+        addAirplane(
+            airplanes,
+            3,
+            {"787", "Boeing", 13600, 954}
+        );
     } catch (const invalid_argument& error) {
         cout << error.what() << '\n';
     }
