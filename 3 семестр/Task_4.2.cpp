@@ -1,550 +1,361 @@
+#include <algorithm>
+#include <cstddef>
 #include <iostream>
+#include <limits>
+#include <random>
 #include <stdexcept>
 #include <utility>
-#include <ctime>
-#include <cstdlib>
-#include <limits>
 
-using namespace std;
+// Политика по умолчанию: числовое значение, прибавление на отрезке,
+// минимум на отрезке.
+template <class T>
+struct AddMinOperations {
+    using Lazy = T;
 
-class Node {
-private:
-    double value;        // значение элемента массива
-    int priority;        // приоритет, по нему дерево является max-heap
-    int size;            // число узлов в поддереве
-    double subtreeMin;   // минимум в поддереве, вариант 30
-    double lazyAdd;      // отложенная команда: прибавить число ко всему поддереву
+    static Lazy identityLazy() { return Lazy{}; }
 
-    Node* left;
-    Node* right;
-    Node* parent;
-
-public:
-    Node(double v = 0.0, int p = 0) {
-        value = v;
-        priority = p;
-        size = 1;
-        subtreeMin = v;
-        lazyAdd = 0.0;
-        left = nullptr;
-        right = nullptr;
-        parent = nullptr;
+    static bool isIdentity(const Lazy& value) {
+        return value == identityLazy();
     }
 
-    double getValue() const { return value; }
-    int getPriority() const { return priority; }
-    int getSize() const { return size; }
-    double getSubtreeMin() const { return subtreeMin; }
-    double getLazyAdd() const { return lazyAdd; }
-
-    Node* getLeft() const { return left; }
-    Node* getRight() const { return right; }
-    Node* getParent() const { return parent; }
-
-    void setParent(Node* p) {
-        parent = p;
+    static void apply(T& value, T& subtreeMin, Lazy& lazy, const Lazy& delta) {
+        value += delta;
+        subtreeMin += delta;
+        lazy += delta;
     }
 
-    void setLeft(Node* node) {
-        left = node;
+    static T aggregate(const T& value, const T* left, const T* right) {
+        T result = value;
         if (left != nullptr) {
-            left->parent = this;
+            result = std::min(result, *left);
         }
-        update();
-    }
-
-    void setRight(Node* node) {
-        right = node;
         if (right != nullptr) {
-            right->parent = this;
+            result = std::min(result, *right);
         }
-        update();
+        return result;
     }
-
-    void applyAdd(double x) {
-        value += x;
-        subtreeMin += x;
-        lazyAdd += x;
-    }
-
-    void pushPromise() {
-        if (lazyAdd != 0.0) {
-            if (left != nullptr) {
-                left->applyAdd(lazyAdd);
-            }
-
-            if (right != nullptr) {
-                right->applyAdd(lazyAdd);
-            }
-
-            lazyAdd = 0.0;
-        }
-    }
-
-    void update() {
-        size = 1;
-        subtreeMin = value;
-
-        if (left != nullptr) {
-            size += left->size;
-            subtreeMin = std::min(subtreeMin, left->subtreeMin);
-        }
-
-        if (right != nullptr) {
-            size += right->size;
-            subtreeMin = std::min(subtreeMin, right->subtreeMin);
-        }
-    }
-
-    friend class Treap;
-    friend class ImplicitTreap;
 };
 
+template <
+    class Value,
+    class Priority,
+    class Operations = AddMinOperations<Value>>
+class ImplicitTreap {
+private:
+    struct Node {
+        Value value;
+        Priority priority;
+        std::size_t size = 1;
+        Value subtreeMin;
+        typename Operations::Lazy lazy = Operations::identityLazy();
+        Node* left = nullptr;
+        Node* right = nullptr;
+        Node* parent = nullptr;
 
-class Treap {
-protected:
-    Node* root;
+        Node(const Value& value_, const Priority& priority_)
+            : value(value_), priority(priority_), subtreeMin(value_) {}
+    };
 
-    static int nodeSize(Node* node) {
+    Node* root_ = nullptr;
+
+    static std::size_t nodeSize(const Node* node) {
         return node == nullptr ? 0 : node->size;
     }
 
     static void clear(Node* node) {
-        if (node == nullptr) return;
-
-        node->pushPromise();
-
+        if (node == nullptr) {
+            return;
+        }
+        push(node);
         clear(node->left);
         clear(node->right);
-
         delete node;
     }
 
-    static Node* mergeNodes(Node* L, Node* R) {
-        if (L == nullptr) return R;
-        if (R == nullptr) return L;
-
-        L->pushPromise();
-        R->pushPromise();
-
-        if (L->priority > R->priority) {
-            Node* mergedRight = mergeNodes(L->right, R);
-
-            L->right = mergedRight;
-            if (mergedRight != nullptr) {
-                mergedRight->parent = L;
-            }
-
-            L->update();
-            return L;
-        } else {
-            Node* mergedLeft = mergeNodes(L, R->left);
-
-            R->left = mergedLeft;
-            if (mergedLeft != nullptr) {
-                mergedLeft->parent = R;
-            }
-
-            R->update();
-            return R;
-        }
-    }
-
-    static Node* minNode(Node* node) {
-        if (node == nullptr) return nullptr;
-
-        node->pushPromise();
-
-        while (node->left != nullptr) {
-            node = node->left;
-            node->pushPromise();
+    static void push(Node* node) {
+        if (node == nullptr || Operations::isIdentity(node->lazy)) {
+            return;
         }
 
-        return node;
-    }
-
-    static Node* maxNode(Node* node) {
-        if (node == nullptr) return nullptr;
-
-        node->pushPromise();
-
-        while (node->right != nullptr) {
-            node = node->right;
-            node->pushPromise();
+        if (node->left != nullptr) {
+            Operations::apply(
+                node->left->value,
+                node->left->subtreeMin,
+                node->left->lazy,
+                node->lazy);
+        }
+        if (node->right != nullptr) {
+            Operations::apply(
+                node->right->value,
+                node->right->subtreeMin,
+                node->right->lazy,
+                node->lazy);
         }
 
-        return node;
+        node->lazy = Operations::identityLazy();
     }
 
-    bool canMergeWith(const Treap& other) const {
-        if (root == nullptr || other.root == nullptr) return true;
-
-        return maxNode(root)->value < minNode(other.root)->value;
-    }
-
-public:
-    Treap() {
-        root = nullptr;
-    }
-
-    explicit Treap(Node* node) {
-        root = node;
-
-        if (root != nullptr) {
-            root->parent = nullptr;
-        }
-    }
-
-    virtual ~Treap() {
-        clear(root);
-    }
-
-    Treap(const Treap&) = delete;
-    Treap& operator=(const Treap&) = delete;
-
-    Node* getRoot() const {
-        return root;
-    }
-
-    Node* detachRoot() {
-        Node* oldRoot = root;
-        root = nullptr;
-
-        if (oldRoot != nullptr) {
-            oldRoot->parent = nullptr;
-        }
-
-        return oldRoot;
-    }
-
-    void merge(Treap& other) {
-        if (!canMergeWith(other)) {
-            throw invalid_argument("For Treap::merge all keys of L must be less than all keys of R");
-        }
-
-        root = mergeNodes(root, other.detachRoot());
-
-        if (root != nullptr) {
-            root->parent = nullptr;
-        }
-    }
-};
-
-class ImplicitTreap : protected Treap {
-private:
-    Node* merge(Node* L, Node* R) {
-        if (L == nullptr) return R;
-        if (R == nullptr) return L;
-
-        L->pushPromise();
-        R->pushPromise();
-
-        if (L->priority > R->priority) {
-            Node* mergedRight = merge(L->right, R);
-
-            L->right = mergedRight;
-            if (mergedRight != nullptr) {
-                mergedRight->parent = L;
-            }
-
-            L->update();
-            return L;
-        } else {
-            Node* mergedLeft = merge(L, R->left);
-
-            R->left = mergedLeft;
-            if (mergedLeft != nullptr) {
-                mergedLeft->parent = R;
-            }
-
-            R->update();
-            return R;
-        }
-    }
-
-    pair<Node*, Node*> split(Node* node, int leftCount) {
+    static void update(Node* node) {
         if (node == nullptr) {
-            return make_pair(nullptr, nullptr);
+            return;
         }
 
-        node->pushPromise();
+        node->size = 1 + nodeSize(node->left) + nodeSize(node->right);
+        const Value* leftMin = node->left == nullptr
+            ? nullptr
+            : &node->left->subtreeMin;
+        const Value* rightMin = node->right == nullptr
+            ? nullptr
+            : &node->right->subtreeMin;
+        node->subtreeMin = Operations::aggregate(node->value, leftMin, rightMin);
+    }
 
-        int leftSize = nodeSize(node->left);
+    static Node* mergeNodes(Node* left, Node* right) {
+        if (left == nullptr) {
+            return right;
+        }
+        if (right == nullptr) {
+            return left;
+        }
+
+        push(left);
+        push(right);
+
+        if (left->priority > right->priority) {
+            left->right = mergeNodes(left->right, right);
+            if (left->right != nullptr) {
+                left->right->parent = left;
+            }
+            update(left);
+            return left;
+        }
+
+        right->left = mergeNodes(left, right->left);
+        if (right->left != nullptr) {
+            right->left->parent = right;
+        }
+        update(right);
+        return right;
+    }
+
+    static std::pair<Node*, Node*> splitNodes(Node* node, std::size_t leftCount) {
+        if (node == nullptr) {
+            return {nullptr, nullptr};
+        }
+
+        push(node);
+        const std::size_t leftSize = nodeSize(node->left);
 
         if (leftCount <= leftSize) {
-            pair<Node*, Node*> result = split(node->left, leftCount);
-
-            node->left = result.second;
+            auto parts = splitNodes(node->left, leftCount);
+            node->left = parts.second;
             if (node->left != nullptr) {
                 node->left->parent = node;
             }
-
-            node->update();
+            update(node);
             node->parent = nullptr;
-
-            if (result.first != nullptr) {
-                result.first->parent = nullptr;
+            if (parts.first != nullptr) {
+                parts.first->parent = nullptr;
             }
+            return {parts.first, node};
+        }
 
-            return make_pair(result.first, node);
-        } else {
-            pair<Node*, Node*> result = split(node->right, leftCount - leftSize - 1);
+        auto parts = splitNodes(node->right, leftCount - leftSize - 1);
+        node->right = parts.first;
+        if (node->right != nullptr) {
+            node->right->parent = node;
+        }
+        update(node);
+        node->parent = nullptr;
+        if (parts.second != nullptr) {
+            parts.second->parent = nullptr;
+        }
+        return {node, parts.second};
+    }
 
-            node->right = result.first;
-            if (node->right != nullptr) {
-                node->right->parent = node;
-            }
-
-            node->update();
-            node->parent = nullptr;
-
-            if (result.second != nullptr) {
-                result.second->parent = nullptr;
-            }
-
-            return make_pair(node, result.second);
+    void checkPosition(std::size_t position) const {
+        if (position > size()) {
+            throw std::out_of_range("Incorrect position");
         }
     }
 
-    void printInOrder(Node* node) {
-        if (node == nullptr) return;
-
-        node->pushPromise();
-
-        printInOrder(node->left);
-        cout << node->value << " ";
-        printInOrder(node->right);
-
-        node->update();
-    }
-
-    void printTree(Node* node, int level) {
-        if (node == nullptr) return;
-
-        node->pushPromise();
-
-        printTree(node->right, level + 1);
-
-        for (int i = 0; i < level; i++) {
-            cout << "    ";
-        }
-
-        cout << "(" << node->value
-             << ", p=" << node->priority
-             << ", size=" << node->size
-             << ", min=" << node->subtreeMin << ")" << endl;
-
-        printTree(node->left, level + 1);
-
-        node->update();
-    }
-
-    void checkPositionForInsert(int position) const {
-        if (position < 0 || position > size()) {
-            throw out_of_range("Incorrect position");
-        }
-    }
-
-    void checkSegment(int left, int right) const {
-        if (left < 0 || right < left || right >= size()) {
-            throw out_of_range("Incorrect segment borders");
+    void checkSegment(std::size_t left, std::size_t right) const {
+        if (left > right || right >= size()) {
+            throw std::out_of_range("Incorrect segment borders");
         }
     }
 
 public:
-    ImplicitTreap() : Treap() {}
+    ImplicitTreap() = default;
 
-    explicit ImplicitTreap(Node* node) : Treap(node) {}
-
-    // Групповая функция size() для всего дерева.
-    int size() const {
-        return nodeSize(root);
+    ~ImplicitTreap() {
+        clear(root_);
     }
 
-    bool empty() const {
-        return root == nullptr;
+    ImplicitTreap(const ImplicitTreap&) = delete;
+    ImplicitTreap& operator=(const ImplicitTreap&) = delete;
+
+    ImplicitTreap(ImplicitTreap&& other) noexcept : root_(other.root_) {
+        other.root_ = nullptr;
     }
 
-    void merge(ImplicitTreap& other) {
-        root = merge(root, other.detachRoot());
-
-        if (root != nullptr) {
-            root->parent = nullptr;
+    ImplicitTreap& operator=(ImplicitTreap&& other) noexcept {
+        if (this != &other) {
+            clear(root_);
+            root_ = other.root_;
+            other.root_ = nullptr;
         }
+        return *this;
     }
 
-    pair<ImplicitTreap*, ImplicitTreap*> split(int leftCount) {
-        if (leftCount < 0 || leftCount > size()) {
-            throw out_of_range("Incorrect split position");
-        }
+    std::size_t size() const { return nodeSize(root_); }
+    bool empty() const { return root_ == nullptr; }
 
-        pair<Node*, Node*> result = split(root, leftCount);
-        root = nullptr;
-
-        return make_pair(
-            new ImplicitTreap(result.first),
-            new ImplicitTreap(result.second)
-        );
-    }
-
-    void insertAt(int position, double value, int priority) {
-        checkPositionForInsert(position);
-
-        pair<Node*, Node*> parts = split(root, position);
-
+    void insertAt(
+        std::size_t position,
+        const Value& value,
+        const Priority& priority) {
+        checkPosition(position);
+        auto parts = splitNodes(root_, position);
         Node* middle = new Node(value, priority);
-
-        root = merge(merge(parts.first, middle), parts.second);
-
-        if (root != nullptr) {
-            root->parent = nullptr;
+        root_ = mergeNodes(mergeNodes(parts.first, middle), parts.second);
+        if (root_ != nullptr) {
+            root_->parent = nullptr;
         }
     }
 
-    void pushBack(double value, int priority) {
+    void pushBack(const Value& value, const Priority& priority) {
         insertAt(size(), value, priority);
     }
 
-    // Удаление элемента по позиции.
-    void removeAt(int position) {
-        if (position < 0 || position >= size()) {
-            throw out_of_range("Incorrect position");
-        }
-
-        pair<Node*, Node*> firstSplit = split(root, position);
-        pair<Node*, Node*> secondSplit = split(firstSplit.second, 1);
-
-        clear(secondSplit.first);
-
-        root = merge(firstSplit.first, secondSplit.second);
-
-        if (root != nullptr) {
-            root->parent = nullptr;
+    void merge(ImplicitTreap& other) {
+        root_ = mergeNodes(root_, other.root_);
+        other.root_ = nullptr;
+        if (root_ != nullptr) {
+            root_->parent = nullptr;
         }
     }
 
-    void addOnSegment(int left, int right, double delta) {
+    std::pair<ImplicitTreap*, ImplicitTreap*> split(std::size_t leftCount) {
+        if (leftCount > size()) {
+            throw std::out_of_range("Incorrect split position");
+        }
+
+        auto parts = splitNodes(root_, leftCount);
+        root_ = nullptr;
+
+        auto* left = new ImplicitTreap();
+        auto* right = new ImplicitTreap();
+        left->root_ = parts.first;
+        right->root_ = parts.second;
+        return {left, right};
+    }
+
+    void removeAt(std::size_t position) {
+        if (position >= size()) {
+            throw std::out_of_range("Incorrect position");
+        }
+
+        auto first = splitNodes(root_, position);
+        auto second = splitNodes(first.second, 1);
+        clear(second.first);
+        root_ = mergeNodes(first.first, second.second);
+        if (root_ != nullptr) {
+            root_->parent = nullptr;
+        }
+    }
+
+    void applyOnSegment(std::size_t left, std::size_t right,
+                        const typename Operations::Lazy& tag) {
         checkSegment(left, right);
 
-        pair<Node*, Node*> firstSplit = split(root, left);
-        pair<Node*, Node*> secondSplit = split(firstSplit.second, right - left + 1);
+        auto first = splitNodes(root_, left);
+        auto second = splitNodes(first.second, right - left + 1);
 
-        if (secondSplit.first != nullptr) {
-            secondSplit.first->applyAdd(delta);
+        if (second.first != nullptr) {
+            Operations::apply(
+                second.first->value,
+                second.first->subtreeMin,
+                second.first->lazy,
+                tag);
         }
 
-        root = merge(
-            merge(firstSplit.first, secondSplit.first),
-            secondSplit.second
-        );
-
-        if (root != nullptr) {
-            root->parent = nullptr;
+        root_ = mergeNodes(mergeNodes(first.first, second.first), second.second);
+        if (root_ != nullptr) {
+            root_->parent = nullptr;
         }
     }
 
-    double getMinOnSegment(int left, int right) {
+    const Value& minOnSegment(std::size_t left, std::size_t right) {
         checkSegment(left, right);
 
-        pair<Node*, Node*> firstSplit = split(root, left);
-        pair<Node*, Node*> secondSplit = split(firstSplit.second, right - left + 1);
+        auto first = splitNodes(root_, left);
+        auto second = splitNodes(first.second, right - left + 1);
+        const Value* result = &second.first->subtreeMin;
 
-        double answer = numeric_limits<double>::infinity();
-
-        if (secondSplit.first != nullptr) {
-            answer = secondSplit.first->subtreeMin;
+        root_ = mergeNodes(mergeNodes(first.first, second.first), second.second);
+        if (root_ != nullptr) {
+            root_->parent = nullptr;
         }
-
-        root = merge(
-            merge(firstSplit.first, secondSplit.first),
-            secondSplit.second
-        );
-
-        if (root != nullptr) {
-            root->parent = nullptr;
-        }
-
-        return answer;
+        return *result;
     }
 
-    double operator[](int position) {
-        if (position < 0 || position >= size()) {
-            throw out_of_range("Incorrect position");
+    Value operator[](std::size_t position) {
+        if (position >= size()) {
+            throw std::out_of_range("Incorrect position");
         }
 
-        pair<Node*, Node*> firstSplit = split(root, position);
-        pair<Node*, Node*> secondSplit = split(firstSplit.second, 1);
+        auto first = splitNodes(root_, position);
+        auto second = splitNodes(first.second, 1);
+        push(second.first);
+        Value result = second.first->value;
 
-        secondSplit.first->pushPromise();
-
-        double answer = secondSplit.first->value;
-
-        root = merge(
-            merge(firstSplit.first, secondSplit.first),
-            secondSplit.second
-        );
-
-        if (root != nullptr) {
-            root->parent = nullptr;
+        root_ = mergeNodes(mergeNodes(first.first, second.first), second.second);
+        if (root_ != nullptr) {
+            root_->parent = nullptr;
         }
-
-        return answer;
+        return result;
     }
 
-    void printArray() {
-        printInOrder(root);
-        cout << endl;
+    void printArray(std::ostream& out = std::cout) {
+        printInOrder(root_, out);
+        out << '\n';
     }
 
-    void printAsTree() {
-        printTree(root, 0);
+private:
+    static void printInOrder(Node* node, std::ostream& out) {
+        if (node == nullptr) {
+            return;
+        }
+        push(node);
+        printInOrder(node->left, out);
+        out << node->value << ' ';
+        printInOrder(node->right, out);
+        update(node);
     }
 };
 
 int main() {
-    srand((unsigned int)time(nullptr));
+    using Treap = ImplicitTreap<double, int>;
+    Treap array;
 
-    ImplicitTreap arr;
+    array.pushBack(7.5, 40);
+    array.pushBack(2.0, 90);
+    array.pushBack(9.1, 30);
+    array.pushBack(4.4, 70);
+    array.pushBack(6.0, 20);
+    array.pushBack(1.3, 60);
 
-    arr.pushBack(7.5, 40);
-    arr.pushBack(2.0, 90);
-    arr.pushBack(9.1, 30);
-    arr.pushBack(4.4, 70);
-    arr.pushBack(6.0, 20);
-    arr.pushBack(1.3, 60);
+    std::cout << "Initial array: ";
+    array.printArray();
+    std::cout << "Minimum [1, 4]: " << array.minOnSegment(1, 4) << '\n';
 
-    cout << "Initial array:" << endl;
-    arr.printArray();
+    array.applyOnSegment(1, 3, 10.0);
+    std::cout << "After adding: ";
+    array.printArray();
+    std::cout << "Minimum [1, 4]: " << array.minOnSegment(1, 4) << '\n';
 
-    cout << "Size = " << arr.size() << endl;
-
-    cout << "\nMinimum on segment [1, 4]: "
-         << arr.getMinOnSegment(1, 4) << endl;
-
-    cout << "\nAdd 10 to segment [1, 3] with lazy propagation" << endl;
-    arr.addOnSegment(1, 3, 10.0);
-
-    cout << "Array after adding:" << endl;
-    arr.printArray();
-
-    cout << "Minimum on segment [1, 4] after adding: "
-         << arr.getMinOnSegment(1, 4) << endl;
-
-    cout << "\nInsert 0.5 at position 2" << endl;
-    arr.insertAt(2, 0.5, 95);
-    arr.printArray();
-
-    cout << "Minimum on full array: "
-         << arr.getMinOnSegment(0, arr.size() - 1) << endl;
-
-    cout << "\nRemove element at position 3" << endl;
-    arr.removeAt(3);
-    arr.printArray();
-
-    cout << "Element at position 2 = " << arr[2] << endl;
-
-    cout << "\nTree view:" << endl;
-    arr.printAsTree();
-
-    return 0;
+    array.insertAt(2, 0.5, 95);
+    array.removeAt(3);
+    std::cout << "Element [2]: " << array[2] << '\n';
 }
