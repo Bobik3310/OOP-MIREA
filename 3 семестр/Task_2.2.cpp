@@ -12,8 +12,8 @@ private:
     string message;
 
 public:
-    NotFoundException(const string& msg) {
-        message = msg;
+    explicit NotFoundException(const string& msg)
+        : message(msg) {
     }
 
     const char* what() const noexcept override {
@@ -27,9 +27,10 @@ private:
     string name;
 
 public:
-    AirplaneKey(string m = "", string n = "") {
-        manufacturer = m;
-        name = n;
+    AirplaneKey(const string& manufacturer = "",
+                const string& name = "")
+        : manufacturer(manufacturer),
+          name(name) {
     }
 
     string getManufacturer() const {
@@ -38,18 +39,6 @@ public:
 
     string getName() const {
         return name;
-    }
-
-    bool operator<(const AirplaneKey& other) const {
-        if (manufacturer != other.manufacturer) {
-            return manufacturer < other.manufacturer;
-        }
-
-        return name < other.name;
-    }
-
-    bool operator==(const AirplaneKey& other) const {
-        return manufacturer == other.manufacturer && name == other.name;
     }
 
     friend ostream& operator<<(ostream& os, const AirplaneKey& key) {
@@ -64,9 +53,10 @@ private:
     int maxSpeed;
 
 public:
-    AirplaneValue(int r = 0, int s = 0) {
-        flightRange = r;
-        maxSpeed = s;
+    AirplaneValue(int flightRange = 0,
+                  int maxSpeed = 0)
+        : flightRange(flightRange),
+          maxSpeed(maxSpeed) {
     }
 
     int getFlightRange() const {
@@ -77,90 +67,144 @@ public:
         return maxSpeed;
     }
 
-    bool operator==(const AirplaneValue& other) const {
-        return flightRange == other.flightRange &&
-               maxSpeed == other.maxSpeed;
-    }
+    friend ostream& operator<<(ostream& os,
+                               const AirplaneValue& value) {
+        os << "дальность полета: "
+           << value.flightRange
+           << " км, максимальная скорость: "
+           << value.maxSpeed
+           << " км/ч";
 
-    bool operator<(const AirplaneValue& other) const {
-        if (flightRange != other.flightRange) {
-            return flightRange < other.flightRange;
-        }
-
-        return maxSpeed < other.maxSpeed;
-    }
-
-    friend ostream& operator<<(ostream& os, const AirplaneValue& value) {
-        os << "дальность полета: " << value.flightRange
-           << " км, максимальная скорость: " << value.maxSpeed << " км/ч";
         return os;
     }
 };
 
-template <typename K, typename V>
-void add(multimap<K, V>& tree, const K& key, const V& value) {
-    tree.insert(pair<K, V>(key, value));
+// Компаратор ключей
+struct AirplaneKeyCompare {
+    bool operator()(const AirplaneKey& left,
+                    const AirplaneKey& right) const {
+        if (left.getManufacturer() != right.getManufacturer()) {
+            return left.getManufacturer() <
+                   right.getManufacturer();
+        }
+
+        return left.getName() < right.getName();
+    }
+};
+
+// Компаратор значений
+struct AirplaneValueCompare {
+    bool operator()(const AirplaneValue& left,
+                    const AirplaneValue& right) const {
+        if (left.getFlightRange() != right.getFlightRange()) {
+            return left.getFlightRange() <
+                   right.getFlightRange();
+        }
+
+        return left.getMaxSpeed() <
+               right.getMaxSpeed();
+    }
+};
+
+// Проверка равенства значений
+struct AirplaneValueEqual {
+    bool operator()(const AirplaneValue& left,
+                    const AirplaneValue& right) const {
+        return left.getFlightRange() ==
+                   right.getFlightRange()
+            && left.getMaxSpeed() ==
+                   right.getMaxSpeed();
+    }
+};
+
+template <typename K, typename V, typename Compare>
+void add(
+    multimap<K, V, Compare>& tree,
+    const K& key,
+    const V& value
+) {
+    tree.insert(make_pair(key, value));
 }
 
-template <typename K, typename V>
-vector<V> findByKey(const multimap<K, V>& tree, const K& key) {
+template <typename K, typename V, typename Compare>
+vector<V> findByKey(
+    const multimap<K, V, Compare>& tree,
+    const K& key
+) {
     vector<V> result;
 
     pair<
-        typename multimap<K, V>::const_iterator,
-        typename multimap<K, V>::const_iterator
+        typename multimap<K, V, Compare>::const_iterator,
+        typename multimap<K, V, Compare>::const_iterator
     > range = tree.equal_range(key);
 
-    typename multimap<K, V>::const_iterator it;
-
-    for (it = range.first; it != range.second; it++) {
+    for (typename multimap<K, V, Compare>::const_iterator it =
+             range.first;
+         it != range.second;
+         ++it) {
         result.push_back(it->second);
     }
 
     if (result.empty()) {
-        throw NotFoundException("Ошибка: элементы с таким ключом не найдены");
+        throw NotFoundException(
+            "Ошибка: элементы с таким ключом не найдены"
+        );
     }
 
     return result;
 }
 
-template <typename K, typename V>
-vector<K> findByValue(const multimap<K, V>& tree, const V& value) {
+template <typename K, typename V, typename Compare, typename Equal>
+vector<K> findByValue(
+    const multimap<K, V, Compare>& tree,
+    const V& value,
+    Equal equal
+) {
     vector<K> result;
 
-    typename multimap<K, V>::const_iterator it;
-
-    for (it = tree.begin(); it != tree.end(); it++) {
-        if (it->second == value) {
+    for (typename multimap<K, V, Compare>::const_iterator it =
+             tree.begin();
+         it != tree.end();
+         ++it) {
+        if (equal(it->second, value)) {
             result.push_back(it->first);
         }
     }
 
     if (result.empty()) {
-        throw NotFoundException("Ошибка: элементы с таким значением не найдены");
+        throw NotFoundException(
+            "Ошибка: элементы с таким значением не найдены"
+        );
     }
 
     return result;
 }
 
-template <typename K, typename V>
-void printTree(const multimap<K, V>& tree) {
-    typename multimap<K, V>::const_iterator it;
-
-    for (it = tree.begin(); it != tree.end(); it++) {
+template <typename K, typename V, typename Compare>
+void printTree(
+    const multimap<K, V, Compare>& tree
+) {
+    for (typename multimap<K, V, Compare>::const_iterator it =
+             tree.begin();
+         it != tree.end();
+         ++it) {
         cout << "Ключ: " << it->first << endl;
         cout << "Значение: " << it->second << endl;
         cout << "----------------------------------" << endl;
     }
 }
 
-template <typename K, typename V, typename Predicate>
-multimap<K, V> filter(const multimap<K, V>& tree, Predicate predicate) {
-    multimap<K, V> result;
+template <typename K, typename V, typename Compare, typename Predicate>
+multimap<K, V, Compare> filter(
+    const multimap<K, V, Compare>& tree,
+    Predicate predicate
+) {
+    multimap<K, V, Compare> result;
 
-    typename multimap<K, V>::const_iterator it;
-
-    for (it = tree.begin(); it != tree.end(); it++) {
+    for (typename multimap<K, V, Compare>::const_iterator it =
+             tree.begin();
+         it != tree.end();
+         ++it) {
         if (predicate(it->second)) {
             result.insert(*it);
         }
@@ -169,50 +213,73 @@ multimap<K, V> filter(const multimap<K, V>& tree, Predicate predicate) {
     return result;
 }
 
-template <typename K, typename V>
-vector<V> uniqueValues(const multimap<K, V>& tree) {
-    set<V> uniqueSet;
+template <
+    typename K,
+    typename V,
+    typename KeyCompare,
+    typename ValueCompare
+>
+vector<V> uniqueValues(
+    const multimap<K, V, KeyCompare>& tree,
+    ValueCompare valueCompare
+) {
+    set<V, ValueCompare> uniqueSet(valueCompare);
 
-    typename multimap<K, V>::const_iterator it;
-
-    for (it = tree.begin(); it != tree.end(); it++) {
+    for (typename multimap<K, V, KeyCompare>::const_iterator it =
+             tree.begin();
+         it != tree.end();
+         ++it) {
         uniqueSet.insert(it->second);
     }
 
-    vector<V> result(uniqueSet.begin(), uniqueSet.end());
-
-    return result;
+    return vector<V>(
+        uniqueSet.begin(),
+        uniqueSet.end()
+    );
 }
 
-template <typename K, typename V>
-vector<pair<K, V> > getElementsBySameKey(const multimap<K, V>& tree, const K& key) {
+template <typename K, typename V, typename Compare>
+vector<pair<K, V> > getElementsBySameKey(
+    const multimap<K, V, Compare>& tree,
+    const K& key
+) {
     vector<pair<K, V> > result;
 
     pair<
-        typename multimap<K, V>::const_iterator,
-        typename multimap<K, V>::const_iterator
+        typename multimap<K, V, Compare>::const_iterator,
+        typename multimap<K, V, Compare>::const_iterator
     > range = tree.equal_range(key);
 
-    typename multimap<K, V>::const_iterator it;
-
-    for (it = range.first; it != range.second; it++) {
+    for (typename multimap<K, V, Compare>::const_iterator it =
+             range.first;
+         it != range.second;
+         ++it) {
         result.push_back(*it);
     }
 
     if (result.empty()) {
-        throw NotFoundException("Ошибка: элементы с таким ключом не найдены");
+        throw NotFoundException(
+            "Ошибка: элементы с таким ключом не найдены"
+        );
     }
 
     return result;
 }
 
-bool flightRangeMoreThan6000(const AirplaneValue& value) {
-    const int threshold = 6000;
-    return value.getFlightRange() > threshold;
+bool flightRangeMoreThan6000(
+    const AirplaneValue& value
+) {
+    return value.getFlightRange() > 6000;
 }
 
 int main() {
-    multimap<AirplaneKey, AirplaneValue> airplanes;
+    typedef multimap<
+        AirplaneKey,
+        AirplaneValue,
+        AirplaneKeyCompare
+    > AirplaneTree;
+
+    AirplaneTree airplanes;
 
     try {
         add(
@@ -267,56 +334,83 @@ int main() {
         printTree(airplanes);
 
         cout << "\nПоиск по ключу Boeing 737:\n";
-        vector<AirplaneValue> valuesByKey = findByKey(
-            airplanes,
-            AirplaneKey("Boeing", "737")
-        );
 
-        for (int i = 0; i < valuesByKey.size(); i++) {
+        vector<AirplaneValue> valuesByKey =
+            findByKey(
+                airplanes,
+                AirplaneKey("Boeing", "737")
+            );
+
+        for (size_t i = 0; i < valuesByKey.size(); ++i) {
             cout << valuesByKey[i] << endl;
         }
 
-        cout << "\nПоиск по значению: дальность 5600, скорость 850:\n";
-        vector<AirplaneKey> keysByValue = findByValue(
-            airplanes,
-            AirplaneValue(5600, 850)
-        );
+        cout << "\nПоиск по значению:\n";
 
-        for (int i = 0; i < keysByValue.size(); i++) {
+        vector<AirplaneKey> keysByValue =
+            findByValue(
+                airplanes,
+                AirplaneValue(5600, 850),
+                AirplaneValueEqual()
+            );
+
+        for (size_t i = 0; i < keysByValue.size(); ++i) {
             cout << keysByValue[i] << endl;
         }
 
-        cout << "\nФильтр: самолеты с дальностью полета больше 6000 км:\n";
-        multimap<AirplaneKey, AirplaneValue> filtered =
-            filter(airplanes, flightRangeMoreThan6000);
+        cout << "\nФильтр: дальность больше 6000 км:\n";
+
+        AirplaneTree filtered =
+            filter(
+                airplanes,
+                flightRangeMoreThan6000
+            );
 
         printTree(filtered);
 
         cout << "\nРазличные значения V:\n";
-        vector<AirplaneValue> unique = uniqueValues(airplanes);
 
-        for (int i = 0; i < unique.size(); i++) {
+        vector<AirplaneValue> unique =
+            uniqueValues(
+                airplanes,
+                AirplaneValueCompare()
+            );
+
+        for (size_t i = 0; i < unique.size(); ++i) {
             cout << unique[i] << endl;
         }
 
-        cout << "\nВсе элементы с одинаковым ключом Boeing 737:\n";
-        vector<pair<AirplaneKey, AirplaneValue> > sameKeyElements =
+        cout << "\nВсе элементы с ключом Boeing 737:\n";
+
+        vector<pair<AirplaneKey, AirplaneValue> >
+            sameKeyElements =
             getElementsBySameKey(
                 airplanes,
                 AirplaneKey("Boeing", "737")
             );
 
-        for (int i = 0; i < sameKeyElements.size(); i++) {
-            cout << "Ключ: " << sameKeyElements[i].first << endl;
-            cout << "Значение: " << sameKeyElements[i].second << endl;
-            cout << "----------------------------------" << endl;
+        for (size_t i = 0;
+             i < sameKeyElements.size();
+             ++i) {
+            cout << "Ключ: "
+                 << sameKeyElements[i].first
+                 << endl;
+
+            cout << "Значение: "
+                 << sameKeyElements[i].second
+                 << endl;
+
+            cout << "----------------------------------"
+                 << endl;
         }
     }
     catch (const NotFoundException& e) {
         cout << e.what() << endl;
     }
     catch (const exception& e) {
-        cout << "Неизвестная ошибка: " << e.what() << endl;
+        cout << "Неизвестная ошибка: "
+             << e.what()
+             << endl;
     }
 
     return 0;
