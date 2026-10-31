@@ -1,9 +1,9 @@
 #include <iostream>
 #include <map>
-#include <set>
 #include <vector>
 #include <string>
 #include <exception>
+#include <algorithm>
 
 using namespace std;
 
@@ -12,9 +12,8 @@ private:
     string message;
 
 public:
-    KeyExistsException(const string& msg) {
-        message = msg;
-    }
+    explicit KeyExistsException(const string& msg)
+        : message(msg) {}
 
     const char* what() const noexcept override {
         return message.c_str();
@@ -26,9 +25,8 @@ private:
     string message;
 
 public:
-    NotFoundException(const string& msg) {
-        message = msg;
-    }
+    explicit NotFoundException(const string& msg)
+        : message(msg) {}
 
     const char* what() const noexcept override {
         return message.c_str();
@@ -41,10 +39,8 @@ private:
     string name;
 
 public:
-    AirplaneKey(string m = "", string n = "") {
-        manufacturer = m;
-        name = n;
-    }
+    AirplaneKey(string m = "", string n = "")
+        : manufacturer(m), name(n) {}
 
     string getManufacturer() const {
         return manufacturer;
@@ -53,22 +49,17 @@ public:
     string getName() const {
         return name;
     }
+};
 
-    bool operator<(const AirplaneKey& other) const {
-        if (manufacturer != other.manufacturer) {
-            return manufacturer < other.manufacturer;
+// Сравнение ключей вынесено из AirplaneKey
+struct AirplaneKeyCompare {
+    bool operator()(const AirplaneKey& a,
+                    const AirplaneKey& b) const {
+        if (a.getManufacturer() != b.getManufacturer()) {
+            return a.getManufacturer() < b.getManufacturer();
         }
 
-        return name < other.name;
-    }
-
-    bool operator==(const AirplaneKey& other) const {
-        return manufacturer == other.manufacturer && name == other.name;
-    }
-
-    friend ostream& operator<<(ostream& os, const AirplaneKey& key) {
-        os << key.manufacturer << " " << key.name;
-        return os;
+        return a.getName() < b.getName();
     }
 };
 
@@ -78,10 +69,8 @@ private:
     int maxSpeed;
 
 public:
-    AirplaneValue(int r = 0, int s = 0) {
-        flightRange = r;
-        maxSpeed = s;
-    }
+    AirplaneValue(int range = 0, int speed = 0)
+        : flightRange(range), maxSpeed(speed) {}
 
     int getFlightRange() const {
         return flightRange;
@@ -90,86 +79,96 @@ public:
     int getMaxSpeed() const {
         return maxSpeed;
     }
+};
 
-    bool operator==(const AirplaneValue& other) const {
-        return flightRange == other.flightRange &&
-               maxSpeed == other.maxSpeed;
-    }
-
-    bool operator<(const AirplaneValue& other) const {
-        if (flightRange != other.flightRange) {
-            return flightRange < other.flightRange;
-        }
-
-        return maxSpeed < other.maxSpeed;
-    }
-
-    friend ostream& operator<<(ostream& os, const AirplaneValue& value) {
-        os << "дальность полета: " << value.flightRange
-           << " км, максимальная скорость: " << value.maxSpeed << " км/ч";
-        return os;
+// Сравнение значений передается отдельно
+struct AirplaneValueEqual {
+    bool operator()(const AirplaneValue& a,
+                    const AirplaneValue& b) const {
+        return a.getFlightRange() == b.getFlightRange() &&
+               a.getMaxSpeed() == b.getMaxSpeed();
     }
 };
 
-template <typename K, typename V>
-void addWithException(map<K, V>& tree, const K& key, const V& value) {
-    typename map<K, V>::iterator it = tree.find(key);
-
-    if (it != tree.end()) {
-        throw KeyExistsException("Ошибка: элемент с таким ключом уже существует");
+template <typename Map>
+void addWithException(
+    Map& tree,
+    const typename Map::key_type& key,
+    const typename Map::mapped_type& value
+) {
+    if (tree.find(key) != tree.end()) {
+        throw KeyExistsException(
+            "Ошибка: элемент с таким ключом уже существует"
+        );
     }
 
-    tree.insert(pair<K, V>(key, value));
+    tree.emplace(key, value);
 }
 
-template <typename K, typename V>
-V findByKey(const map<K, V>& tree, const K& key) {
-    typename map<K, V>::const_iterator it = tree.find(key);
+template <typename Map>
+typename Map::mapped_type findByKey(
+    const Map& tree,
+    const typename Map::key_type& key
+) {
+    typename Map::const_iterator it = tree.find(key);
 
     if (it == tree.end()) {
-        throw NotFoundException("Ошибка: элемент с таким ключом не найден");
+        throw NotFoundException(
+            "Ошибка: элемент с таким ключом не найден"
+        );
     }
 
     return it->second;
 }
 
-template <typename K, typename V>
-vector<K> findByValue(const map<K, V>& tree, const V& value) {
-    vector<K> result;
+template <typename Map, typename Equal>
+vector<typename Map::key_type> findByValue(
+    const Map& tree,
+    const typename Map::mapped_type& value,
+    Equal equal
+) {
+    vector<typename Map::key_type> result;
 
-    typename map<K, V>::const_iterator it;
-
-    for (it = tree.begin(); it != tree.end(); it++) {
-        if (it->second == value) {
+    for (typename Map::const_iterator it = tree.begin();
+         it != tree.end(); ++it) {
+        if (equal(it->second, value)) {
             result.push_back(it->first);
         }
     }
 
     if (result.empty()) {
-        throw NotFoundException("Ошибка: элемент с таким значением не найден");
+        throw NotFoundException(
+            "Ошибка: элемент с таким значением не найден"
+        );
     }
 
     return result;
 }
 
-template <typename K, typename V>
-void printTree(const map<K, V>& tree) {
-    typename map<K, V>::const_iterator it;
+template <typename Map, typename KeyPrinter, typename ValuePrinter>
+void printTree(
+    const Map& tree,
+    KeyPrinter printKey,
+    ValuePrinter printValue
+) {
+    for (typename Map::const_iterator it = tree.begin();
+         it != tree.end(); ++it) {
+        cout << "Ключ: ";
+        printKey(it->first);
 
-    for (it = tree.begin(); it != tree.end(); it++) {
-        cout << "Ключ: " << it->first << endl;
-        cout << "Значение: " << it->second << endl;
-        cout << "----------------------------------" << endl;
+        cout << "Значение: ";
+        printValue(it->second);
+
+        cout << "----------------------------------\n";
     }
 }
 
-template <typename K, typename V, typename Predicate>
-map<K, V> filter(const map<K, V>& tree, Predicate predicate) {
-    map<K, V> result;
+template <typename Map, typename Predicate>
+Map filter(const Map& tree, Predicate predicate) {
+    Map result(tree.key_comp());
 
-    typename map<K, V>::const_iterator it;
-
-    for (it = tree.begin(); it != tree.end(); it++) {
+    for (typename Map::const_iterator it = tree.begin();
+         it != tree.end(); ++it) {
         if (predicate(it->second)) {
             result.insert(*it);
         }
@@ -178,28 +177,59 @@ map<K, V> filter(const map<K, V>& tree, Predicate predicate) {
     return result;
 }
 
-template <typename K, typename V>
-vector<V> uniqueValues(const map<K, V>& tree) {
-    set<V> uniqueSet;
+template <typename Map, typename Equal>
+vector<typename Map::mapped_type> uniqueValues(
+    const Map& tree,
+    Equal equal
+) {
+    vector<typename Map::mapped_type> result;
 
-    typename map<K, V>::const_iterator it;
+    for (typename Map::const_iterator it = tree.begin();
+         it != tree.end(); ++it) {
+        bool alreadyExists = false;
 
-    for (it = tree.begin(); it != tree.end(); it++) {
-        uniqueSet.insert(it->second);
+        for (typename vector<typename Map::mapped_type>::const_iterator jt =
+                 result.begin();
+             jt != result.end(); ++jt) {
+            if (equal(*jt, it->second)) {
+                alreadyExists = true;
+                break;
+            }
+        }
+
+        if (!alreadyExists) {
+            result.push_back(it->second);
+        }
     }
-
-    vector<V> result(uniqueSet.begin(), uniqueSet.end());
 
     return result;
 }
 
 bool flightRangeMoreThan6000(const AirplaneValue& value) {
-    const int threshold = 6000;
-    return value.getFlightRange() > threshold;
+    return value.getFlightRange() > 6000;
+}
+
+void printKey(const AirplaneKey& key) {
+    cout << key.getManufacturer() << " "
+         << key.getName() << endl;
+}
+
+void printValue(const AirplaneValue& value) {
+    cout << "дальность полета: "
+         << value.getFlightRange()
+         << " км, максимальная скорость: "
+         << value.getMaxSpeed()
+         << " км/ч" << endl;
 }
 
 int main() {
-    map<AirplaneKey, AirplaneValue> airplanes;
+    typedef map<
+        AirplaneKey,
+        AirplaneValue,
+        AirplaneKeyCompare
+    > AirplaneMap;
+
+    AirplaneMap airplanes;
 
     try {
         addWithException(
@@ -239,53 +269,52 @@ int main() {
         );
 
         cout << "Исходное дерево map:\n";
-        printTree(airplanes);
+        printTree(airplanes, printKey, printValue);
 
         cout << "\nПоиск по ключу Boeing 787:\n";
         AirplaneValue foundValue = findByKey(
             airplanes,
             AirplaneKey("Boeing", "787")
         );
-        cout << foundValue << endl;
+        printValue(foundValue);
 
-        cout << "\nПоиск по значению: дальность 5600, скорость 850:\n";
+        cout << "\nПоиск по значению:\n";
         vector<AirplaneKey> foundKeys = findByValue(
             airplanes,
-            AirplaneValue(5600, 850)
+            AirplaneValue(5600, 850),
+            AirplaneValueEqual()
         );
 
-        for (int i = 0; i < foundKeys.size(); i++) {
-            cout << foundKeys[i] << endl;
+        for (size_t i = 0; i < foundKeys.size(); ++i) {
+            printKey(foundKeys[i]);
         }
 
-        cout << "\nФильтр: самолеты с дальностью полета больше 6000 км:\n";
-        map<AirplaneKey, AirplaneValue> filtered =
-            filter(airplanes, flightRangeMoreThan6000);
+        cout << "\nСамолеты с дальностью больше 6000 км:\n";
+        AirplaneMap filtered = filter(
+            airplanes,
+            flightRangeMoreThan6000
+        );
+        printTree(filtered, printKey, printValue);
 
-        printTree(filtered);
+        cout << "\nУникальные значения:\n";
+        vector<AirplaneValue> values = uniqueValues(
+            airplanes,
+            AirplaneValueEqual()
+        );
 
-        cout << "\nРазличные значения V:\n";
-        vector<AirplaneValue> unique = uniqueValues(airplanes);
-
-        for (int i = 0; i < unique.size(); i++) {
-            cout << unique[i] << endl;
+        for (size_t i = 0; i < values.size(); ++i) {
+            printValue(values[i]);
         }
 
-        cout << "\nПроверка исключения при добавлении повторяющегося ключа:\n";
+        cout << "\nПроверка повторяющегося ключа:\n";
         addWithException(
             airplanes,
             AirplaneKey("Boeing", "737"),
             AirplaneValue(7000, 900)
         );
     }
-    catch (const KeyExistsException& e) {
-        cout << e.what() << endl;
-    }
-    catch (const NotFoundException& e) {
-        cout << e.what() << endl;
-    }
     catch (const exception& e) {
-        cout << "Неизвестная ошибка: " << e.what() << endl;
+        cout << e.what() << endl;
     }
 
     return 0;
