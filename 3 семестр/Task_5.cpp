@@ -1,71 +1,93 @@
-#include <iostream>
-#include <vector>
-#include <stack>
-#include <queue>
-#include <limits>
-#include <iomanip>
 #include <algorithm>
-#include <tuple>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <queue>
+#include <stack>
+#include <vector>
 
 using namespace std;
 
-const int INF = numeric_limits<int>::max();
-
+template <typename Weight>
 class Graph {
 private:
-    vector<vector<int>> matrix;
+    vector<vector<Weight>> matrix;
     int n;
 
+    static constexpr Weight infinity() {
+        return numeric_limits<Weight>::max();
+    }
+
+    struct QueueItem {
+        Weight priority;
+        int vertex;
+    };
+
+    struct QueueCompare {
+        bool operator()(const QueueItem& a,
+                        const QueueItem& b) const {
+            return a.priority > b.priority;
+        }
+    };
+
 public:
-    Graph(const vector<vector<int>>& m) {
-        matrix = m;
-        n = matrix.size();
+    explicit Graph(const vector<vector<Weight>>& m)
+        : matrix(m), n(static_cast<int>(m.size())) {}
+
+    int size() const {
+        return n;
     }
 
     void printMatrix() const {
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j < n; j++) {
-                cout << setw(3) << matrix[i][j] << " ";
+        for (int i = 0; i < n; ++i) {
+            for (int j = 0; j < n; ++j) {
+                cout << setw(3) << matrix[i][j] << ' ';
             }
-            cout << endl;
+            cout << '\n';
         }
     }
 
     void printEdges() const {
-        int totalWeight = 0;
+        Weight totalWeight{};
 
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) {
-                if (matrix[i][j] > 0) {
-                    cout << i + 1 << " - " << j + 1
-                         << " : " << matrix[i][j] << endl;
+        for (int i = 0; i < n; ++i) {
+            for (int j = i + 1; j < n; ++j) {
+                if (matrix[i][j] > Weight{}) {
+                    cout << i + 1 << " - "
+                         << j + 1 << " : "
+                         << matrix[i][j] << '\n';
+
                     totalWeight += matrix[i][j];
                 }
             }
         }
 
-        cout << "Суммарный вес ребер: " << totalWeight << endl;
+        cout << "Суммарный вес ребер: "
+             << totalWeight << '\n';
     }
 
     Graph buildMSTPrim() const {
-        vector<vector<int>> mst(n, vector<int>(n, 0));
+        vector<vector<Weight>> mst(
+            n, vector<Weight>(n, Weight{}));
 
-        vector<int> minEdge(n, INF);     // минимальный вес ребра до вершины
-        vector<int> parent(n, -1);       // родитель вершины в остове
-        vector<bool> used(n, false);     // включена ли вершина в остов
+        vector<Weight> minEdge(n, infinity());
+        vector<int> parent(n, -1);
+        vector<bool> used(n, false);
 
         priority_queue<
-            pair<int, int>,
-            vector<pair<int, int>>,
-            greater<pair<int, int>>
+            QueueItem,
+            vector<QueueItem>,
+            QueueCompare
         > pq;
 
-        minEdge[0] = 0;
-        pq.push({0, 0});
+        minEdge[0] = Weight{};
+        pq.push({Weight{}, 0});
 
         while (!pq.empty()) {
-            int v = pq.top().second;
+            QueueItem current = pq.top();
             pq.pop();
+
+            int v = current.vertex;
 
             if (used[v]) {
                 continue;
@@ -73,10 +95,13 @@ public:
 
             used[v] = true;
 
-            for (int to = 0; to < n; to++) {
-                int weight = matrix[v][to];
+            for (int to = 0; to < n; ++to) {
+                Weight weight = matrix[v][to];
 
-                if (weight > 0 && !used[to] && weight < minEdge[to]) {
+                if (weight > Weight{} &&
+                    !used[to] &&
+                    weight < minEdge[to]) {
+
                     minEdge[to] = weight;
                     parent[to] = v;
                     pq.push({weight, to});
@@ -84,9 +109,10 @@ public:
             }
         }
 
-        for (int v = 1; v < n; v++) {
+        for (int v = 1; v < n; ++v) {
             if (parent[v] != -1) {
                 int p = parent[v];
+
                 mst[v][p] = matrix[v][p];
                 mst[p][v] = matrix[v][p];
             }
@@ -107,17 +133,21 @@ public:
         }
 
         st.push(start);
-        visited[start] = true;
 
         while (!st.empty()) {
             int v = st.top();
             st.pop();
 
+            if (visited[v]) {
+                continue;
+            }
+
+            visited[v] = true;
             result.push_back(v + 1);
 
-            for (int to = 0; to < n; to++) {
-                if (matrix[v][to] > 0 && !visited[to]) {
-                    visited[to] = true;
+            for (int to = n - 1; to >= 0; --to) {
+                if (matrix[v][to] > Weight{} &&
+                    !visited[to]) {
                     st.push(to);
                 }
             }
@@ -127,74 +157,75 @@ public:
     }
 
     struct ShortestPathsResult {
-        vector<int> distances;
+        vector<Weight> distances;
         vector<vector<int>> paths;
     };
 
     ShortestPathsResult dijkstra(int startVertex = 1) const {
         int start = startVertex - 1;
 
-        vector<int> dist(n, INF);
+        vector<Weight> distances(n, infinity());
         vector<int> parent(n, -1);
-        vector<bool> used(n, false);
-        vector<vector<int>> paths(n);
+        vector<vector<int>> paths;
+
+        if (start < 0 || start >= n) {
+            return {distances, paths};
+        }
 
         priority_queue<
-            pair<int, int>,
-            vector<pair<int, int>>,
-            greater<pair<int, int>>
+            QueueItem,
+            vector<QueueItem>,
+            QueueCompare
         > pq;
 
-        dist[start] = 0;
-        pq.push({0, start});
+        distances[start] = Weight{};
+        pq.push({Weight{}, start});
 
         while (!pq.empty()) {
-            int v = pq.top().second;
-            int currentDistance = pq.top().first;
+            QueueItem current = pq.top();
             pq.pop();
 
-            if (used[v]) {
+            int v = current.vertex;
+
+            if (current.priority != distances[v]) {
                 continue;
             }
 
-            used[v] = true;
+            for (int to = 0; to < n; ++to) {
+                Weight weight = matrix[v][to];
 
-            if (currentDistance > dist[v]) {
-                continue;
-            }
+                if (weight <= Weight{}) {
+                    continue;
+                }
 
-            for (int to = 0; to < n; to++) {
-                int weight = matrix[v][to];
+                Weight newDistance =
+                    distances[v] + weight;
 
-                if (weight > 0 && dist[v] != INF) {
-                    int newDistance = dist[v] + weight;
-
-                    if (newDistance < dist[to]) {
-                        dist[to] = newDistance;
-                        parent[to] = v;
-                        pq.push({newDistance, to});
-                    }
+                if (newDistance < distances[to]) {
+                    distances[to] = newDistance;
+                    parent[to] = v;
+                    pq.push({newDistance, to});
                 }
             }
         }
 
-        // Восстанавливаем маршруты
-        for (int v = 0; v < n; v++) {
-            if (dist[v] == INF) {
+        paths.resize(n);
+
+        for (int v = 0; v < n; ++v) {
+            if (distances[v] == infinity()) {
                 continue;
             }
 
-            vector<int> path;
-
-            for (int cur = v; cur != -1; cur = parent[cur]) {
-                path.push_back(cur + 1);
+            for (int current = v;
+                 current != -1;
+                 current = parent[current]) {
+                paths[v].push_back(current + 1);
             }
 
-            reverse(path.begin(), path.end());
-            paths[v] = path;
+            reverse(paths[v].begin(), paths[v].end());
         }
 
-        return {dist, paths};
+        return {distances, paths};
     }
 
     struct DegreeResult {
@@ -203,7 +234,9 @@ public:
         double averageDegree;
     };
 
-    DegreeResult calculateDegreesBFS(int startVertex = 1) const {
+    DegreeResult calculateDegreesBFS(
+        int startVertex = 1) const {
+
         int start = startVertex - 1;
 
         vector<int> degrees(n, 0);
@@ -211,8 +244,12 @@ public:
         vector<bool> visited(n, false);
         queue<int> q;
 
-        q.push(start);
+        if (start < 0 || start >= n) {
+            return {degrees, bfsOrder, 0.0};
+        }
+
         visited[start] = true;
+        q.push(start);
 
         while (!q.empty()) {
             int v = q.front();
@@ -220,9 +257,9 @@ public:
 
             bfsOrder.push_back(v + 1);
 
-            for (int to = 0; to < n; to++) {
-                if (matrix[v][to] > 0) {
-                    degrees[v]++;
+            for (int to = 0; to < n; ++to) {
+                if (matrix[v][to] > Weight{}) {
+                    ++degrees[v];
 
                     if (!visited[to]) {
                         visited[to] = true;
@@ -234,25 +271,23 @@ public:
 
         int sumDegrees = 0;
 
-        for (int d : degrees) {
-            sumDegrees += d;
+        for (int degree : degrees) {
+            sumDegrees += degree;
         }
 
-        double average = static_cast<double>(sumDegrees) / n;
+        double averageDegree =
+            static_cast<double>(sumDegrees) / n;
 
-        return {degrees, bfsOrder, average};
-    }
-
-    int size() const {
-        return n;
+        return {degrees, bfsOrder, averageDegree};
     }
 };
 
-void printVector(const vector<int>& v) {
-    for (int x : v) {
-        cout << x << " ";
+void printVector(const vector<int>& values) {
+    for (int value : values) {
+        cout << value << ' ';
     }
-    cout << endl;
+
+    cout << '\n';
 }
 
 int main() {
@@ -271,58 +306,66 @@ int main() {
         {6, 3, 1, 8, 5, 7, 4, 2, 1, 7, 6, 0}
     };
 
-    Graph graph(matrix);
+    Graph<int> graph(matrix);
 
-    cout << "Исходный граф. Матрица смежности:" << endl;
+    cout << "Исходный граф:\n";
     graph.printMatrix();
 
-    cout << "\nDFS исходного графа от вершины 1:" << endl;
-    vector<int> dfsOriginal = graph.DFS(1);
-    printVector(dfsOriginal);
+    cout << "\nDFS исходного графа:\n";
+    printVector(graph.DFS(1));
 
-    cout << "\nМинимальные пути от вершины 1:" << endl;
-    Graph::ShortestPathsResult shortest = graph.dijkstra(1);
+    cout << "\nМинимальные пути от вершины 1:\n";
 
-    for (int i = 0; i < graph.size(); i++) {
+    auto shortest = graph.dijkstra(1);
+
+    for (int i = 0; i < graph.size(); ++i) {
         cout << "До вершины " << i + 1 << ": ";
 
-        if (shortest.distances[i] == INF) {
-            cout << "маршрута нет" << endl;
+        if (shortest.distances[i] ==
+            numeric_limits<int>::max()) {
+
+            cout << "маршрута нет\n";
         } else {
-            cout << "расстояние = " << shortest.distances[i] << ", путь: ";
+            cout << "расстояние = "
+                 << shortest.distances[i]
+                 << ", путь: ";
+
             printVector(shortest.paths[i]);
         }
     }
 
-    cout << "\nМинимальное остовное дерево:" << endl;
-    Graph mst = graph.buildMSTPrim();
+    Graph<int> mst = graph.buildMSTPrim();
 
-    cout << "\nМатрица минимального остовного дерева:" << endl;
+    cout << "\nМатрица минимального остовного дерева:\n";
     mst.printMatrix();
 
-    cout << "\nРебра минимального остовного дерева:" << endl;
+    cout << "\nРебра минимального остовного дерева:\n";
     mst.printEdges();
 
-    cout << "\nDFS минимального остовного дерева от вершины 1:" << endl;
-    vector<int> dfsMST = mst.DFS(1);
-    printVector(dfsMST);
+    cout << "\nDFS минимального остовного дерева:\n";
+    printVector(mst.DFS(1));
 
-    cout << "\nBFS-обход минимального остовного дерева:" << endl;
-    Graph::DegreeResult degreeResult = mst.calculateDegreesBFS(1);
+    auto degreeResult =
+        mst.calculateDegreesBFS(1);
 
-    cout << "Порядок BFS: ";
+    cout << "\nBFS-обход:\n";
     printVector(degreeResult.bfsOrder);
 
-    cout << "\nСтепени вершин минимального остовного дерева:" << endl;
+    cout << "\nСтепени вершин:\n";
 
-    for (int i = 0; i < degreeResult.degrees.size(); i++) {
+    for (int i = 0;
+         i < static_cast<int>(
+                 degreeResult.degrees.size());
+         ++i) {
+
         cout << "Вершина " << i + 1
-             << ": степень = " << degreeResult.degrees[i] << endl;
+             << ": степень = "
+             << degreeResult.degrees[i] << '\n';
     }
 
     cout << "\nСредняя степень дерева: "
          << fixed << setprecision(4)
-         << degreeResult.averageDegree << endl;
+         << degreeResult.averageDegree << '\n';
 
     return 0;
 }
