@@ -1,16 +1,17 @@
 #include <iostream>
 #include <string>
 #include <stdexcept>
+#include <functional>
 
 using namespace std;
 
 class Airplane {
 private:
-    string name;          // название самолета
-    string manufacturer;  // производитель
-    int capacity;         // вместимость
-    int flightRange;      // дальность полета
-    int maxSpeed;         // максимальная скорость
+    string name;
+    string manufacturer;
+    int capacity;
+    int flightRange;
+    int maxSpeed;
 
 public:
     Airplane(
@@ -19,40 +20,32 @@ public:
         int c = 0,
         int r = 0,
         int s = 0
-    ) {
-        name = n;
-        manufacturer = m;
-        capacity = c;
-        flightRange = r;
-        maxSpeed = s;
+    )
+        : name(n),
+          manufacturer(m),
+          capacity(c),
+          flightRange(r),
+          maxSpeed(s) {
     }
 
-    bool operator>(const Airplane& other) const {
-        if (capacity != other.capacity) {
-            return capacity > other.capacity;
-        }
-
-        if (flightRange != other.flightRange) {
-            return flightRange > other.flightRange;
-        }
-
-        if (manufacturer != other.manufacturer) {
-            return manufacturer < other.manufacturer;
-        }
-
-        return name < other.name;
+    const string& getName() const {
+        return name;
     }
 
-    bool operator<(const Airplane& other) const {
-        return other > *this;
+    const string& getManufacturer() const {
+        return manufacturer;
     }
 
-    bool operator==(const Airplane& other) const {
-        return name == other.name
-            && manufacturer == other.manufacturer
-            && capacity == other.capacity
-            && flightRange == other.flightRange
-            && maxSpeed == other.maxSpeed;
+    int getCapacity() const {
+        return capacity;
+    }
+
+    int getFlightRange() const {
+        return flightRange;
+    }
+
+    int getMaxSpeed() const {
+        return maxSpeed;
     }
 
     friend ostream& operator<<(ostream& os, const Airplane& plane) {
@@ -66,14 +59,46 @@ public:
     }
 };
 
-template <class T>
+// Отдельно описываем приоритет самолетов
+struct AirplanePriority {
+    bool operator()(const Airplane& a, const Airplane& b) const {
+        if (a.getCapacity() != b.getCapacity()) {
+            return a.getCapacity() > b.getCapacity();
+        }
+
+        if (a.getFlightRange() != b.getFlightRange()) {
+            return a.getFlightRange() > b.getFlightRange();
+        }
+
+        if (a.getManufacturer() != b.getManufacturer()) {
+            return a.getManufacturer() < b.getManufacturer();
+        }
+
+        return a.getName() < b.getName();
+    }
+};
+
+// Отдельно описываем равенство объектов
+struct AirplaneEqual {
+    bool operator()(const Airplane& a, const Airplane& b) const {
+        return a.getName() == b.getName()
+            && a.getManufacturer() == b.getManufacturer()
+            && a.getCapacity() == b.getCapacity()
+            && a.getFlightRange() == b.getFlightRange()
+            && a.getMaxSpeed() == b.getMaxSpeed();
+    }
+};
+
+template<class T>
 class Node {
 private:
     T value;
 
 public:
-    Node(T v = T()) {
-        value = v;
+    Node() = default;
+
+    explicit Node(const T& v)
+        : value(v) {
     }
 
     const T& getValue() const {
@@ -84,41 +109,54 @@ public:
         value = v;
     }
 
-    bool operator<(const Node<T>& other) const {
-        return value < other.value;
-    }
-
-    bool operator>(const Node<T>& other) const {
-        return value > other.value;
-    }
-
     void print() const {
         cout << value;
     }
 };
 
-template <class T>
+template<class T>
 void printNode(const Node<T>* node) {
     cout << node->getValue() << endl;
 }
 
-template <class T>
+template<
+    class T,
+    class HigherPriority,
+    class Equal
+>
 class Heap {
 private:
-    Node<T>* arr; // массив узлов
-    int len;      // сколько элементов добавлено
-    int size;     // сколько памяти выделено
+    Node<T>* arr;
+    int len;
+    int size;
+
+    HigherPriority higherPriority;
+    Equal equal;
 
 public:
-    Heap(int memorySize = 100) {
-        arr = new Node<T>[memorySize];
-        len = 0;
-        size = memorySize;
+    Heap(
+        int memorySize = 100,
+        HigherPriority priority = HigherPriority(),
+        Equal equality = Equal()
+    )
+        : arr(nullptr),
+          len(0),
+          size(memorySize),
+          higherPriority(priority),
+          equal(equality) {
+        if (memorySize <= 0) {
+            throw invalid_argument("Heap size must be positive");
+        }
+
+        arr = new Node<T>[size];
     }
 
     ~Heap() {
         delete[] arr;
     }
+
+    Heap(const Heap&) = delete;
+    Heap& operator=(const Heap&) = delete;
 
     int getCapacity() const {
         return size;
@@ -136,8 +174,19 @@ public:
         return arr[index];
     }
 
+    const Node<T>& operator[](int index) const {
+        if (index < 0 || index >= len) {
+            throw out_of_range("Incorrect heap index");
+        }
+
+        return arr[index];
+    }
+
     void Swap(int index1, int index2) {
-        if (index1 < 0 || index1 >= len || index2 < 0 || index2 >= len) {
+        if (
+            index1 < 0 || index1 >= len ||
+            index2 < 0 || index2 >= len
+        ) {
             throw out_of_range("Incorrect index in Swap");
         }
 
@@ -147,9 +196,13 @@ public:
     }
 
     int GetLeftChildIndex(int index) const {
+        if (index < 0 || index >= len) {
+            return -1;
+        }
+
         int left = 2 * index + 1;
 
-        if (index < 0 || left >= len) {
+        if (left >= len) {
             return -1;
         }
 
@@ -157,9 +210,13 @@ public:
     }
 
     int GetRightChildIndex(int index) const {
+        if (index < 0 || index >= len) {
+            return -1;
+        }
+
         int right = 2 * index + 2;
 
-        if (index < 0 || right >= len) {
+        if (right >= len) {
             return -1;
         }
 
@@ -174,46 +231,70 @@ public:
         return (index - 1) / 2;
     }
 
-    // Просеивание вверх
     void SiftUp(int index = -1) {
         if (index == -1) {
             index = len - 1;
         }
 
+        if (index < 0 || index >= len) {
+            return;
+        }
+
         int parent = GetParentIndex(index);
 
-        while (parent != -1 && arr[index] > arr[parent]) {
+        while (
+            parent != -1 &&
+            higherPriority(
+                arr[index].getValue(),
+                arr[parent].getValue()
+            )
+        ) {
             Swap(index, parent);
+
             index = parent;
             parent = GetParentIndex(index);
         }
     }
 
-    // Просеивание вниз
     void SiftDown(int index = 0) {
+        if (index < 0 || index >= len) {
+            return;
+        }
+
         while (true) {
             int left = GetLeftChildIndex(index);
             int right = GetRightChildIndex(index);
-            int maxIndex = index;
+            int best = index;
 
-            if (left != -1 && arr[left] > arr[maxIndex]) {
-                maxIndex = left;
+            if (
+                left != -1 &&
+                higherPriority(
+                    arr[left].getValue(),
+                    arr[best].getValue()
+                )
+            ) {
+                best = left;
             }
 
-            if (right != -1 && arr[right] > arr[maxIndex]) {
-                maxIndex = right;
+            if (
+                right != -1 &&
+                higherPriority(
+                    arr[right].getValue(),
+                    arr[best].getValue()
+                )
+            ) {
+                best = right;
             }
 
-            if (maxIndex == index) {
+            if (best == index) {
                 break;
             }
 
-            Swap(index, maxIndex);
-            index = maxIndex;
+            Swap(index, best);
+            index = best;
         }
     }
 
-    // Добавление элемента: кладем в конец и просеиваем вверх
     void push(const T& value) {
         if (len >= size) {
             throw overflow_error("Heap is full");
@@ -225,7 +306,6 @@ public:
         SiftUp(len - 1);
     }
 
-    // Удаление корня, то есть максимального элемента
     T ExtractMax() {
         if (len == 0) {
             throw underflow_error("Heap is empty");
@@ -243,7 +323,6 @@ public:
         return maxValue;
     }
 
-    // Удаление произвольного элемента по индексу
     T RemoveAt(int index) {
         if (index < 0 || index >= len) {
             throw out_of_range("Incorrect index in RemoveAt");
@@ -257,9 +336,16 @@ public:
         if (index < len) {
             int parent = GetParentIndex(index);
 
-            if (parent != -1 && arr[index] > arr[parent]) {
+            if (
+                parent != -1 &&
+                higherPriority(
+                    arr[index].getValue(),
+                    arr[parent].getValue()
+                )
+            ) {
                 SiftUp(index);
-            } else {
+            }
+            else {
                 SiftDown(index);
             }
         }
@@ -267,10 +353,9 @@ public:
         return removedValue;
     }
 
-    // Удаление произвольного элемента по значению
     bool Remove(const T& value) {
         for (int i = 0; i < len; i++) {
-            if (arr[i].getValue() == value) {
+            if (equal(arr[i].getValue(), value)) {
                 RemoveAt(i);
                 return true;
             }
@@ -279,7 +364,6 @@ public:
         return false;
     }
 
-    // Прямой просмотр массива кучи
     void Straight(void (*f)(const Node<T>*)) const {
         for (int i = 0; i < len; i++) {
             f(&arr[i]);
@@ -288,7 +372,11 @@ public:
 };
 
 int main() {
-    Heap<Airplane> airplanes;
+    Heap<
+        Airplane,
+        AirplanePriority,
+        AirplaneEqual
+    > airplanes;
 
     Airplane a1("A320", "Airbus", 180, 6100, 871);
     Airplane a2("A321", "Airbus", 220, 5950, 871);
@@ -309,12 +397,14 @@ int main() {
 
     cout << "\nRemove arbitrary element:" << endl;
     cout << "Removed: " << a4 << endl;
+
     airplanes.Remove(a4);
 
     cout << "\nHeap after removing arbitrary element:" << endl;
     airplanes.Straight(printNode<Airplane>);
 
     cout << "\nExtractMax output, descending priority:" << endl;
+
     while (airplanes.getCount() > 0) {
         cout << airplanes.ExtractMax() << endl;
     }
