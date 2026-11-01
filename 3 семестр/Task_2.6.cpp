@@ -1,7 +1,6 @@
 #include <algorithm>
-#include <iostream>
 #include <functional>
-#include <map>
+#include <iostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,6 +18,7 @@ protected:
         Node* left{};
         Node* right{};
         Node* parent{};
+        int height{1};
 
         Node(const Value& v, Node* p = nullptr)
             : value(v), parent(p) {}
@@ -28,7 +28,7 @@ protected:
     Compare compare_{};
     KeyOfValue key_of_{};
 
-    const Key& key(const Value& value) const {
+    Key key(const Value& value) const {
         return key_of_(value);
     }
 
@@ -37,29 +37,33 @@ protected:
     }
 
     bool equivalent(const Value& value, const Key& k) const {
-        return !compare_(key(value), k) &&
-               !compare_(k, key(value));
+        const Key current_key = key(value);
+
+        return !compare_(current_key, k) &&
+               !compare_(k, current_key);
     }
 
     Node* insert_right_node(const Value& value) {
         if (!root_)
             return root_ = new Node(value);
 
+        const Key new_key = key(value);
         Node* current = root_;
         Node* parent = nullptr;
+        bool insert_left = false;
 
         while (current) {
             parent = current;
+            insert_left = compare_(new_key, key(current->value));
 
-            if (compare_(key(value), key(current->value)))
-                current = current->left;
-            else
-                current = current->right;
+            current = insert_left
+                ? current->left
+                : current->right;
         }
 
         Node* node = new Node(value, parent);
 
-        if (compare_(key(value), key(parent->value)))
+        if (insert_left)
             parent->left = node;
         else
             parent->right = node;
@@ -109,6 +113,12 @@ protected:
     }
 
 public:
+    SearchTree() = default;
+
+    // Узлы принадлежат дереву: поверхностное копирование запрещено.
+    SearchTree(const SearchTree&) = delete;
+    SearchTree& operator=(const SearchTree&) = delete;
+
     class iterator {
         Node* node_{};
 
@@ -133,6 +143,12 @@ public:
         iterator& operator++() {
             node_ = SearchTree::next(node_);
             return *this;
+        }
+
+        iterator operator++(int) {
+            iterator previous = *this;
+            ++(*this);
+            return previous;
         }
 
         bool operator==(const iterator& other) const {
@@ -166,7 +182,6 @@ public:
     }
 };
 
-
 template<
     class Key,
     class Value,
@@ -179,21 +194,23 @@ protected:
     using Base = SearchTree<Key, Value, KeyOfValue, Compare>;
     using Node = typename Base::Node;
 
-    std::map<Node*, int> heights_;
-
     int height(Node* node) const {
-        return node ? heights_.at(node) : 0;
+        return node ? node->height : 0;
     }
 
     void update_height(Node* node) {
         if (node) {
-            heights_[node] =
+            node->height =
                 1 + std::max(height(node->left), height(node->right));
         }
     }
 
     void rotate_left(Node* x) {
         Node* y = x->right;
+
+        if (!y)
+            return;
+
         Node* parent = x->parent;
 
         x->right = y->left;
@@ -218,6 +235,10 @@ protected:
 
     void rotate_right(Node* y) {
         Node* x = y->left;
+
+        if (!x)
+            return;
+
         Node* parent = y->parent;
 
         y->left = x->right;
@@ -244,7 +265,7 @@ protected:
         while (node) {
             update_height(node);
 
-            int balance =
+            const int balance =
                 height(node->left) - height(node->right);
 
             if (balance > 1) {
@@ -268,14 +289,15 @@ protected:
         }
     }
 
-    void collect(Node* node,
-                 const Key& search_key,
-                 std::vector<Value>& result) const {
+    void collect(
+        Node* node,
+        const Key& search_key,
+        std::vector<Value>& result
+    ) const {
         if (!node)
             return;
 
-        const Key& current_key =
-            this->key(node->value);
+        const Key current_key = this->key(node->value);
 
         if (this->compare_(search_key, current_key)) {
             collect(node->left, search_key, result);
@@ -295,10 +317,7 @@ public:
 
     iterator add(const Value& value) {
         Node* node = this->insert_right_node(value);
-
-        heights_[node] = 1;
         rebalance(node->parent);
-
         return iterator(node);
     }
 
@@ -308,7 +327,6 @@ public:
         return result;
     }
 };
-
 
 template<
     class Key,
@@ -321,54 +339,6 @@ class SplayTree
     using Base = AVLTree<Key, Value, KeyOfValue, Compare>;
     using Node = typename Base::Node;
 
-    void rotate_left(Node* x) {
-        Node* y = x->right;
-
-        if (!y)
-            return;
-
-        x->right = y->left;
-
-        if (y->left)
-            y->left->parent = x;
-
-        y->parent = x->parent;
-
-        if (!x->parent)
-            this->root_ = y;
-        else if (x == x->parent->left)
-            x->parent->left = y;
-        else
-            x->parent->right = y;
-
-        y->left = x;
-        x->parent = y;
-    }
-
-    void rotate_right(Node* x) {
-        Node* y = x->left;
-
-        if (!y)
-            return;
-
-        x->left = y->right;
-
-        if (y->right)
-            y->right->parent = x;
-
-        y->parent = x->parent;
-
-        if (!x->parent)
-            this->root_ = y;
-        else if (x == x->parent->left)
-            x->parent->left = y;
-        else
-            x->parent->right = y;
-
-        y->right = x;
-        x->parent = y;
-    }
-
     void splay(Node* node) {
         while (node && node->parent) {
             Node* parent = node->parent;
@@ -376,34 +346,36 @@ class SplayTree
 
             if (!grandparent) {
                 if (node == parent->left)
-                    rotate_right(parent);
+                    this->rotate_right(parent);
                 else
-                    rotate_left(parent);
+                    this->rotate_left(parent);
             }
             else if (node == parent->left &&
                      parent == grandparent->left) {
-                rotate_right(grandparent);
-                rotate_right(parent);
+                this->rotate_right(grandparent);
+                this->rotate_right(parent);
             }
             else if (node == parent->right &&
                      parent == grandparent->right) {
-                rotate_left(grandparent);
-                rotate_left(parent);
+                this->rotate_left(grandparent);
+                this->rotate_left(parent);
             }
             else if (node == parent->right) {
-                rotate_left(parent);
-                rotate_right(grandparent);
+                this->rotate_left(parent);
+                this->rotate_right(grandparent);
             }
             else {
-                rotate_right(parent);
-                rotate_left(grandparent);
+                this->rotate_right(parent);
+                this->rotate_left(grandparent);
             }
         }
     }
 
-    void collect_equal(Node* node,
-                      const Key& search_key,
-                      std::vector<Value>& result) const {
+    void collect_equal(
+        Node* node,
+        const Key& search_key,
+        std::vector<Value>& result
+    ) const {
         if (!node)
             return;
 
@@ -457,7 +429,6 @@ public:
     }
 };
 
-
 struct Airplane {
     std::string name;
     std::string manufacturer;
@@ -468,13 +439,13 @@ struct Airplane {
 
 std::ostream& operator<<(
     std::ostream& os,
-    const Airplane& airplane) {
+    const Airplane& airplane
+) {
     return os
         << airplane.manufacturer << ' '
         << airplane.name
         << " capacity=" << airplane.capacity;
 }
-
 
 struct AirplaneKey {
     std::pair<std::string, std::string>
@@ -486,13 +457,11 @@ struct AirplaneKey {
     }
 };
 
-
 using AirplaneTree = SplayTree<
     std::pair<std::string, std::string>,
     Airplane,
     AirplaneKey
 >;
-
 
 int main() {
     AirplaneTree tree;
@@ -513,8 +482,7 @@ int main() {
         840
     });
 
-    auto airplanes =
-        tree[{"Airbus", "A320"}];
+    auto airplanes = tree[{"Airbus", "A320"}];
 
     std::cout << airplanes.size() << '\n';
 
