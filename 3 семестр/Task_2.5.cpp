@@ -3,7 +3,6 @@
 #include <iostream>
 #include <string>
 #include <tuple>
-#include <unordered_map>
 #include <vector>
 
 template<
@@ -15,9 +14,9 @@ template<
 class AVLTree;
 
 // Универсальное дерево поиска.
-// T    — хранимое значение;
-// Key  — ключ;
-// KeyOf — извлечение ключа из значения;
+// T       — хранимое значение;
+// Key     — ключ;
+// KeyOf   — извлечение ключа из значения;
 // Compare — сравнение ключей.
 template<
     class T,
@@ -32,6 +31,7 @@ protected:
         Node* left{};
         Node* right{};
         Node* parent{};
+        int height{1};
 
         Node(const T& v, Node* p = nullptr)
             : value(v), parent(p) {}
@@ -41,7 +41,7 @@ protected:
     KeyOf key_of_{};
     Compare compare_{};
 
-    const Key& key(const T& value) const {
+    Key key(const T& value) const {
         return key_of_(value);
     }
 
@@ -50,7 +50,7 @@ protected:
     }
 
     bool equal_key(const T& value, const Key& k) const {
-        Key value_key = key_of_(value);
+        Key value_key = key(value);
 
         return !compare_(value_key, k) &&
                !compare_(k, value_key);
@@ -106,6 +106,12 @@ protected:
     }
 
 public:
+    SearchTree() = default;
+
+    // Запрещаем поверхностное копирование владеющего дерева.
+    SearchTree(const SearchTree&) = delete;
+    SearchTree& operator=(const SearchTree&) = delete;
+
     class iterator {
         Node* node_{};
 
@@ -145,15 +151,13 @@ class AVLTree
     using Base = SearchTree<T, Key, KeyOf, Compare>;
     using Node = typename Base::Node;
 
-    std::unordered_map<Node*, int> heights_;
-
     int height(Node* node) const {
-        return node ? heights_.at(node) : 0;
+        return node ? node->height : 0;
     }
 
     void update_height(Node* node) {
         if (node) {
-            heights_[node] =
+            node->height =
                 1 + std::max(
                     height(node->left),
                     height(node->right)
@@ -264,8 +268,6 @@ public:
 
     void add(const T& value) {
         Node* node = this->insert_node(value);
-
-        heights_[node] = 1;
         rebalance(node->parent);
     }
 
